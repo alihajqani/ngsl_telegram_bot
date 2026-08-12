@@ -1,0 +1,25 @@
+{
+  "name": "@ngsl/bot",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@grammyjs/runner": "^2.0.3",
+    "@grammyjs/storage-redis": "^2.5.1",
+    "@ngsl/coach": "workspace:*",
+    "@ngsl/core": "workspace:*",
+    "@ngsl/db": "workspace:*",
+    "@ngsl/game": "workspace:*",
+    "@ngsl/monitor": "workspace:*",
+    "@ngsl/queue": "workspace:*",
+    "@ngsl/shared": "workspace:*",
+    "grammy": "^1.34.0",
+    "ioredis": "^5.4.2"
+  }
+}

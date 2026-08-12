@@ -1,0 +1,26 @@
+{
+  "name": "@ngsl/llm",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@ngsl/shared": "workspace:*",
+    "undici": "^7.2.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

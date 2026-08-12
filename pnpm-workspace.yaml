@@ -1,0 +1,10 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# pnpm 11 requires build scripts to be allow-listed explicitly.
+# esbuild backs tsx and vitest; msgpackr-extract is BullMQ's fast serializer.
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true

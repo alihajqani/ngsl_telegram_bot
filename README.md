@@ -1,0 +1,90 @@
+# NGSL Bot v2
+
+Persian/English vocabulary learning on Telegram: Leitner spaced repetition over the
+NGSL 2,809-word list, with every word taught through real clips from a curated
+corpus of TED / BBC / National Geographic talks.
+
+Rebuilt from v1 around two changes that the old document model could not support:
+a **corpus-first media pipeline** (ingest curated channels once, index every
+sentence, serve by lookup) and a **relational core** that makes "never show the
+same clip twice" a join rather than an impossibility.
+
+## Layout
+
+```
+apps/bot        grammY long-polling process — handlers only, kept thin
+apps/worker     BullMQ consumers: corpus ingest, clip render, notify, llm
+packages/core   Pure domain — Leitner, progress, streaks. Zero I/O. Fully tested
+packages/db     Drizzle schema, migrations, repositories
+packages/shared Zod-validated config, structured logging
+```
+
+The dependency direction is enforced by `eslint-plugin-boundaries`, not by
+convention: `core` imports nothing, and no app may reach past a repository into
+Drizzle. v1 had the same rule written in prose and broke it in 11 files.
+
+## Getting started
+
+```bash
+pnpm install
+cp .env.example .env          # fill in BOT_TOKEN, DATABASE_URL, GEMINI_API_KEYS…
+docker compose up -d postgres redis
+pnpm db:push                  # apply the schema
+pnpm db:seed                  # load the 2,809-word NGSL list
+pnpm dev:bot                  # and, in another shell: pnpm dev:worker
+```
+
+Requires Node 22+, pnpm 11, and `yt-dlp` + `ffmpeg` on PATH for the media pipeline.
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `pnpm typecheck` | Build-mode type check across all packages |
+| `pnpm test` | Vitest — domain logic in `packages/core` |
+| `pnpm lint` | ESLint, type-aware, with layering rules |
+| `pnpm db:generate` | Emit a migration from schema changes |
+| `pnpm db:push` | Apply the schema directly (development) |
+| `pnpm db:seed` | Seed `word` from `data/ngsl.csv`; idempotent. `--dry-run` validates the CSV only |
+| `pnpm ingest` | Ingest the corpus. `--list`, `--channel=<slug>`, `--limit=<n>`, `--delay=<ms>` |
+| `pnpm db:studio` | Browse the database |
+
+## The corpus
+
+`data/channels.yml` is the whitelist. Quality is enforced there, once, rather
+than per search result — and only videos with **human-authored** English
+subtitles are indexed. yt-dlp is invoked with `--write-subs` and deliberately
+without `--write-auto-subs`, so a video carrying nothing but machine captions
+produces no file and is recorded as `sub_status='none'`, never probed again.
+
+Two measured facts shape the crawl:
+
+- **Crawl oldest-first.** YouTube retired community-contributed captions in
+  September 2020, so older uploads are far likelier to have real subtitles.
+  Measured on the 6 newest vs 6 oldest uploads: TED went 3/6 → 6/6, and English
+  Speeches went 0/6 → 6/6. `order: oldest` is the default for that reason.
+- **Match `en.*`, not `en`.** BBC Learning English publishes `en-GB` and Vox
+  publishes `en-US`; matching only `en` would silently discard both.
+
+```bash
+pnpm ingest --list                              # show the whitelist
+pnpm ingest --channel=veritasium --limit=25     # smoke-test one channel
+pnpm ingest --limit=500                         # every enabled channel
+```
+
+Subtitle cues are merged into sentence-shaped segments before indexing, so a
+clip is a whole thought rather than the fragment a caption line happens to end
+on. Each segment is then resolved against the closed NGSL vocabulary and written
+to `word_occurrence` — a precomputed posting list, which is why serving a word
+needs no search engine.
+
+## Security
+
+Configuration is parsed and validated **once**, at startup, by
+`packages/shared/src/config.ts`. Reading `process.env` anywhere else is a lint
+error.
+
+YouTube cookies are mounted at runtime from `/run/secrets/`, never committed and
+never `COPY`ed into an image — v1 leaked a live Google session by shipping
+`data/cookies.txt` in both git and every Docker layer. Use a throwaway Google
+account. Postgres and Redis bind to loopback only and both require a password.

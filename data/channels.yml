@@ -1,0 +1,97 @@
+# Curated source whitelist for the media corpus.
+#
+# Quality is enforced HERE, once, instead of per search result. Only channels in
+# this file are ever ingested, and only videos with human-authored English
+# subtitles survive the filter.
+#
+# `manualSubRate` figures below were measured with yt-dlp against the 6 newest
+# and 6 oldest uploads of each channel (2026-08-10). They are the reason
+# `order: oldest` is the default: YouTube retired community-contributed captions
+# in September 2020, so pre-2020 uploads are far likelier to carry real subtitles.
+# TED went 3/6 newest → 6/6 oldest; English Speeches went 0/6 → 6/6.
+
+channels:
+  - slug: ted
+    name: TED
+    url: https://www.youtube.com/@TED/videos
+    tier: 1
+    accent: mixed
+    order: oldest
+    # newest 3/6, oldest 6/6
+
+  - slug: ted-ed
+    name: TED-Ed
+    url: https://www.youtube.com/@TEDEd/videos
+    tier: 1
+    accent: us
+    order: oldest
+    # newest 3/6
+
+  - slug: bbc-learning-english
+    name: BBC Learning English
+    url: https://www.youtube.com/@bbclearningenglish/videos
+    tier: 1
+    accent: uk
+    order: newest
+    # 6/6 newest — subtitles are en-GB, which is why --sub-langs uses "en.*"
+
+  - slug: kurzgesagt
+    name: Kurzgesagt – In a Nutshell
+    url: https://www.youtube.com/@kurzgesagt/videos
+    tier: 1
+    accent: uk
+    order: newest
+    # 6/6 newest — consistently captioned
+
+  - slug: veritasium
+    name: Veritasium
+    url: https://www.youtube.com/@veritasium/videos
+    tier: 1
+    accent: mixed
+    order: newest
+    # 6/6 newest — consistently captioned
+
+  - slug: national-geographic
+    name: National Geographic
+    url: https://www.youtube.com/@NatGeo/videos
+    tier: 2
+    accent: us
+    order: oldest
+    # newest 3/6
+
+  - slug: english-speeches
+    name: English Speeches
+    url: https://www.youtube.com/@EnglishSpeeches/videos
+    tier: 2
+    accent: mixed
+    order: oldest
+    # newest 0/6, oldest 6/6 — MUST be crawled oldest-first or it yields nothing
+
+  - slug: vox
+    name: Vox
+    url: https://www.youtube.com/@Vox/videos
+    tier: 2
+    accent: us
+    order: oldest
+    # newest 1/6 (en-US) — low yield, kept at tier 2 to fill gaps
+
+  # ── Disabled: measured zero manual English subtitles ─────────────────────────
+  # Both were in the approved whitelist but do not survive the "manual subtitles
+  # only" requirement. Re-enable if that ever changes.
+  - slug: bbc-news
+    name: BBC News
+    url: https://www.youtube.com/@BBCNews/videos
+    tier: 3
+    accent: uk
+    order: newest
+    enabled: false
+    # 0/6 newest, 0 found oldest — auto-captions only
+
+  - slug: the-school-of-life
+    name: The School of Life
+    url: https://www.youtube.com/@theschooloflife/videos
+    tier: 3
+    accent: uk
+    order: newest
+    enabled: false
+    # 0/6 newest, 0/6 oldest — auto-captions only

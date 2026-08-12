@@ -1,0 +1,92 @@
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:18-alpine
+    container_name: ngsl-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ngsl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ngsl}
+    # v1 published MongoDB, Redis and mongo-express to 0.0.0.0 with no auth.
+    # Bind to loopback so nothing is reachable from outside the host.
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      # Postgres 18+ expects the volume at /var/lib/postgresql, NOT
+      # /var/lib/postgresql/data. The image places its cluster in a
+      # version-named subdirectory so `pg_upgrade --link` can work across a
+      # single mount point. Mounting the old path makes the container refuse to
+      # start. See docker-library/postgres#1259.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-ngsl} -d ${POSTGRES_DB:-ngsl}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [ngsl]
+
+  # ── Redis (sessions + BullMQ) ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ngsl-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks: [ngsl]
+
+  # ── Bot (interactive traffic only) ─────────────────────────────────────────
+  bot:
+    build:
+      context: .
+      target: bot
+    container_name: ngsl-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ngsl}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ngsl}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    dns: ['8.8.8.8', '1.1.1.1']
+    networks: [ngsl]
+
+  # ── Worker (queues: ingest, render, notify, llm) ───────────────────────────
+  worker:
+    build:
+      context: .
+      target: worker
+    container_name: ngsl-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-ngsl}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ngsl}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    dns: ['8.8.8.8', '1.1.1.1']
+    volumes:
+      # Cookies arrive at runtime, read-only. Never baked into the image.
+      - ${YOUTUBE_COOKIES_HOST_PATH:-/dev/null}:/run/secrets/youtube_cookies.txt:ro
+    networks: [ngsl]
+
+networks:
+  ngsl:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

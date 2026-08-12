@@ -1,0 +1,23 @@
+# v1 baked a live Google cookie jar into every image layer via `COPY data/`.
+# `data/` is excluded here wholesale; the lexicon is copied explicitly and
+# cookies are mounted at runtime, never built in.
+data/
+
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+secrets/
+
+.git
+.gitignore
+.github
+*.log
+coverage
+.claude
+README.md

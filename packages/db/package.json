@@ -1,0 +1,33 @@
+{
+  "name": "@ngsl/db",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@ngsl/core": "workspace:*",
+    "@ngsl/shared": "workspace:*",
+    "csv-parse": "^5.6.0",
+    "drizzle-orm": "^0.44.0",
+    "postgres": "^3.4.5",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}

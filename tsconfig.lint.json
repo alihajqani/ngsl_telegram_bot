@@ -1,0 +1,10 @@
+{
+  "$comment": "Type-aware linting only. The build uses each package's own tsconfig; this one widens the net to include tests and root config files, which are deliberately excluded from emit.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true
+  },
+  "include": ["packages/*/src/**/*.ts", "apps/*/src/**/*.ts", "*.config.ts"]
+}

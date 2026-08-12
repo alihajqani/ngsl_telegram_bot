@@ -1,0 +1,31 @@
+# ── Secrets — NEVER commit ──────────────────────────────────────────────────
+# v1 leaked a live Google session cookie jar because `data/` was not ignored.
+# Cookies are supplied at RUNTIME via bind-mount or Docker secret, never committed.
+.env
+.env.*
+!.env.example
+*.cookies.txt
+cookies.txt
+data/cookies.txt
+secrets/
+
+# ── Build output ────────────────────────────────────────────────────────────
+dist/
+*.tsbuildinfo
+
+# ── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Runtime / temp ──────────────────────────────────────────────────────────
+*.log
+logs/
+tmp/
+.clips-tmp/
+coverage/
+
+# ── Editor / OS ─────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/core" },
+    { "path": "./packages/db" },
+    { "path": "./packages/media" },
+    { "path": "./packages/queue" },
+    { "path": "./packages/llm" },
+    { "path": "./packages/content" },
+    { "path": "./packages/coach" },
+    { "path": "./packages/game" },
+    { "path": "./packages/monitor" },
+    { "path": "./apps/bot" },
+    { "path": "./apps/worker" }
+  ]
+}

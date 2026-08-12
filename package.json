@@ -1,0 +1,40 @@
+{
+  "name": "ngsl-bot-v2",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "clean": "tsc -b --clean",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx packages/db/src/seed/index.ts",
+    "ingest": "tsx packages/media/src/cli.ts",
+    "worker": "tsx apps/worker/src/index.ts",
+    "prewarm": "tsx apps/worker/src/prewarm-cli.ts",
+    "dev:bot": "pnpm --filter @ngsl/bot dev",
+    "dev:worker": "pnpm --filter @ngsl/worker dev",
+    "content": "tsx packages/content/src/cli.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "drizzle-kit": "^0.31.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-boundaries": "^5.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.19.0",
+    "vitest": "^3.0.0"
+  }
+}

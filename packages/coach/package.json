@@ -1,0 +1,27 @@
+{
+  "name": "@ngsl/coach",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@ngsl/db": "workspace:*",
+    "@ngsl/llm": "workspace:*",
+    "@ngsl/shared": "workspace:*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  }
+}
