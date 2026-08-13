@@ -1,4 +1,4 @@
-# NGSL Bot v2
+# NGSL Telegram Bot
 
 Persian/English vocabulary learning on Telegram: Leitner spaced repetition over the
 NGSL 2,809-word list, with every word taught through real clips from a curated
@@ -25,9 +25,27 @@ Drizzle. v1 had the same rule written in prose and broke it in 11 files.
 
 ## Getting started
 
+### Docker (the whole stack)
+
+```bash
+cp .env.example .env          # fill in BOT_TOKEN, GEMINI_API_KEYS, POSTGRES_PASSWORD, REDIS_PASSWORD…
+docker compose up -d --build  # postgres, redis, bot, worker
+docker compose logs -f bot worker
+```
+
+`DATABASE_URL` and `REDIS_URL` are overridden by compose to the in-network
+hostnames, so the values in `.env` only matter to commands run from the host.
+On a database that has never been migrated, apply the schema and lexicon first:
+
+```bash
+docker compose up -d postgres
+pnpm db:push && pnpm db:seed
+```
+
+### Local processes (for development)
+
 ```bash
 pnpm install
-cp .env.example .env          # fill in BOT_TOKEN, DATABASE_URL, GEMINI_API_KEYS…
 docker compose up -d postgres redis
 pnpm db:push                  # apply the schema
 pnpm db:seed                  # load the 2,809-word NGSL list
@@ -35,6 +53,20 @@ pnpm dev:bot                  # and, in another shell: pnpm dev:worker
 ```
 
 Requires Node 22+, pnpm 11, and `yt-dlp` + `ffmpeg` on PATH for the media pipeline.
+The container images supply those two binaries themselves — and only to the
+worker, since the bot never touches media.
+
+### Images
+
+`Dockerfile` builds both apps from one graph, as targets `bot` and `worker`.
+They share every layer up to the TypeScript build and differ only at the end:
+the worker adds ffmpeg and yt-dlp, the bot deliberately gets neither. Both run
+as the unprivileged `node` user, and neither contains `.env` or any cookie jar —
+secrets arrive at runtime through `env_file` and `/run/secrets/`.
+
+Compose pins `name: ngsl_telegram_bot`. Volumes are namespaced by that project
+name, so leaving it to be derived from the directory would strand the database
+the moment the checkout is renamed.
 
 ## Commands
 

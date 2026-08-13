@@ -2,12 +2,21 @@
 # `data/` is excluded here wholesale; the lexicon is copied explicitly and
 # cookies are mounted at runtime, never built in.
 data/
+# Re-admitted by name so the Dockerfile can COPY them: the NGSL lexicon and the
+# channel whitelist are inputs, not secrets. Anything else under data/ —
+# cookies above all — stays out of the build context entirely.
+!data/ngsl.csv
+!data/channels.yml
 
 node_modules
 **/node_modules
 dist
 **/dist
+# Both forms are required: a leading-directory-less pattern matches only the
+# root. Letting a stale tsbuildinfo through is silent and lethal — `tsc -b`
+# trusts it, skips emit, and the image ships with no dist/ at all.
 *.tsbuildinfo
+**/*.tsbuildinfo
 
 .env
 .env.*

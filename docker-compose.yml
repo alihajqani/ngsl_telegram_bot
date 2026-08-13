@@ -1,3 +1,9 @@
+# Pinned rather than derived from the directory name. Compose names its volumes
+# after the project, so a renamed checkout silently moves the stack onto empty
+# volumes and strands the ingested corpus (24k clips, 300k word occurrences) in
+# the old ones. Renaming a directory must never orphan a database.
+name: ngsl_telegram_bot
+
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
