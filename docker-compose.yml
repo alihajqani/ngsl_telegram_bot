@@ -8,7 +8,7 @@ services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
     image: postgres:18-alpine
-    container_name: ngsl-postgres
+    container_name: ngsl-v2-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ngsl}
@@ -35,7 +35,7 @@ services:
   # ── Redis (sessions + BullMQ) ──────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: ngsl-redis
+    container_name: ngsl-v2-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     ports:
@@ -57,7 +57,7 @@ services:
     build:
       context: .
       target: bot
-    container_name: ngsl-bot
+    container_name: ngsl-v2-bot
     restart: unless-stopped
     env_file: .env
     environment:
@@ -74,7 +74,7 @@ services:
     build:
       context: .
       target: worker
-    container_name: ngsl-worker
+    container_name: ngsl-v2-worker
     restart: unless-stopped
     env_file: .env
     environment:
