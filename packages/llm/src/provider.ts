@@ -56,6 +56,34 @@ async function post(url: string, body: unknown, headers: Record<string, string> 
   });
 }
 
+interface GeminiPayload {
+  candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
+}
+
+/**
+ * The answer text of a Gemini response.
+ *
+ * Thinking models (Gemma 4, Gemini 2.5) also return their reasoning, as parts
+ * flagged `thought: true`. Joined into the answer, that reasoning — which
+ * drafts the JSON with `"..."` placeholders — was parsed instead of the real
+ * payload, and every generated word was silently dropped.
+ */
+export function geminiAnswerText(payload: GeminiPayload): string {
+  return (
+    payload.candidates?.[0]?.content?.parts
+      ?.filter((part) => part.thought !== true)
+      .map((part) => part.text ?? '')
+      .join('') ?? ''
+  );
+}
+
+/**
+ * Output budget. A thinking model spends part of it reasoning before it writes
+ * the answer, so a batch of eight words' JSON needs far more than the answer's
+ * own ~1,500 tokens.
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
 async function callGemini(messages: ChatMessage[], options: CompletionOptions): Promise<string> {
   const { apiKeys, model } = config().llm.gemini;
   if (apiKeys.length === 0) throw new AllKeysExhaustedError('gemini');
@@ -68,7 +96,7 @@ async function callGemini(messages: ChatMessage[], options: CompletionOptions): 
     ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
     generationConfig: {
       temperature: options.temperature ?? 0.4,
-      maxOutputTokens: options.maxOutputTokens ?? 2048,
+      maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
       // Native JSON mode removes an entire class of "model wrapped it in prose"
       // parse failures that v1 handled by stripping code fences after the fact.
       ...(options.json ? { responseMimeType: 'application/json' } : {}),
@@ -93,10 +121,7 @@ async function callGemini(messages: ChatMessage[], options: CompletionOptions): 
     }
 
     keyCursor = (keyCursor + attempt + 1) % apiKeys.length;
-    const payload = (await response.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-    const text = payload.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
+    const text = geminiAnswerText((await response.json()) as GeminiPayload);
     if (text.trim() === '') throw new LlmUnavailableError('Gemini returned an empty completion');
     return text;
   }

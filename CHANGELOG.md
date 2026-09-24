@@ -9,6 +9,28 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-09-24
+
+### Fixed
+
+- **No collocations or LLM examples were ever saved with a thinking model.**
+  Gemma 4 and Gemini 2.5 return their reasoning as separate `thought` parts,
+  and the provider joined those into the answer. The reasoning drafts the JSON
+  with `"..."` placeholders, so that draft was parsed instead of the answer and
+  every word was dropped, while the run reported no failure. Thought parts are
+  now discarded, and the default output budget is 8,192 tokens so the reasoning
+  cannot crowd out the answer. The writing coach uses the same path and is
+  fixed too.
+- A content batch that parses but matches none of the requested words is now
+  logged as a warning instead of passing silently.
+- The aligner image no longer stores the model weights twice (2.57 GB → 1.96 GB).
+
+### Upgrade notes
+
+Run `content all` once so every word gets its examples and collocations:
+`docker compose exec worker node packages/content/dist/cli.js all`. It resumes
+where it left off if interrupted.
+
 ## [3.0.0] - 2026-09-24
 
 ### Changed

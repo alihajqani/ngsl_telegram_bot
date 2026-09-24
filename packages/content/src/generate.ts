@@ -87,6 +87,24 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * A batch that parses but writes nothing is a failure in disguise: the model
+ * answered for words it was not asked about, or with placeholders. Left
+ * silent, that once made a whole run report "0 failed" while saving nothing.
+ */
+function warnIfNothingMatched(
+  kind: string,
+  batch: readonly WordNeedingContent[],
+  returned: readonly { word: string }[],
+  written: number,
+): void {
+  if (written > 0) return;
+  log.warn(`${kind} batch matched no requested word`, {
+    requested: batch.map((w) => w.lemma),
+    returned: returned.map((w) => w.word).slice(0, 10),
+  });
+}
+
 const listFor = (words: readonly WordNeedingContent[]): string =>
   words.map((w) => `- ${w.lemma}${w.definition ? ` (${w.definition})` : ''}`).join('\n');
 
@@ -138,6 +156,7 @@ export async function generateExamples(
     try {
       const result = await completeJson(messages, exampleBatchSchema, { temperature: 0.7 });
       const byLemma = new Map(batch.map((w) => [w.lemma.toLowerCase(), w]));
+      const writtenBefore = stats.wordsWritten;
 
       for (const entry of result.words) {
         const target = byLemma.get(entry.word.toLowerCase().trim());
@@ -158,6 +177,7 @@ export async function generateExamples(
         stats.wordsWritten += 1;
         stats.itemsWritten += usable.length;
       }
+      warnIfNothingMatched('Example', batch, result.words, stats.wordsWritten - writtenBefore);
     } catch (error) {
       // One bad batch must not abandon the remaining 2,000 words.
       stats.batchesFailed += 1;
@@ -223,6 +243,7 @@ export async function generateCollocations(
     try {
       const result = await completeJson(messages, collocationBatchSchema, { temperature: 0.5 });
       const byLemma = new Map(batch.map((w) => [w.lemma.toLowerCase(), w]));
+      const writtenBefore = stats.wordsWritten;
 
       for (const entry of result.words) {
         const target = byLemma.get(entry.word.toLowerCase().trim());
@@ -245,6 +266,7 @@ export async function generateCollocations(
         stats.wordsWritten += 1;
         stats.itemsWritten += phrases.length;
       }
+      warnIfNothingMatched('Collocation', batch, result.words, stats.wordsWritten - writtenBefore);
     } catch (error) {
       stats.batchesFailed += 1;
       log.warn('Collocation batch failed', { words: batch.map((w) => w.lemma), error });

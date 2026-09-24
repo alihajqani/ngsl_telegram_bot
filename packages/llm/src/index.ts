@@ -1,5 +1,6 @@
 export {
   complete,
+  geminiAnswerText,
   resetProvider,
   AllKeysExhaustedError,
   LlmUnavailableError,

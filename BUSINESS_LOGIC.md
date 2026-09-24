@@ -20,6 +20,11 @@
 Newest first. Record the commit whose behaviour the document now describes, not
 the commit that edited the document.
 
+### 2026-09-24 — describes `v3.0.1`
+
+- Thinking-model reasoning is dropped from LLM replies; content batches that
+  match no word are warned about (§9.2).
+
 ### 2026-09-24 — describes `v3.0.0`
 
 - The clip pipeline is rebuilt around one download per source video and local,
@@ -615,6 +620,13 @@ Operating rules:
   That one field is now **coerced rather than validated**, and the prompt carries
   a worked example instead of `"..."` placeholders.
 - Caps: 3 examples and 5 collocations per word.
+- **Only the answer is read from a thinking model.** Gemma 4 and Gemini 2.5
+  return their reasoning as parts flagged `thought: true`; those are dropped
+  (`geminiAnswerText`). Joined in, the reasoning's placeholder draft of the JSON
+  was parsed instead of the answer and every word was silently discarded. The
+  output budget defaults to 8,192 tokens so reasoning cannot crowd out a batch.
+- A batch that parses but matches none of the requested words is logged as a
+  warning rather than counted as a quiet success.
 
 Default model: `gemini-2.0-flash`; LLM timeout 60,000 ms.
 
