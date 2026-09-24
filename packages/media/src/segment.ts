@@ -19,7 +19,11 @@ export interface TextSegment {
   endMs: number;
   text: string;
   wordCount: number;
-  /** True when the text closes on terminal punctuation — a quality signal, not a filter. */
+  /**
+   * A whole sentence: it starts where the previous one ended (or at the top of
+   * the video) and closes on terminal punctuation. A segment cut by the length
+   * cap is never complete, and neither is the remainder that follows it.
+   */
   complete: boolean;
 }
 
@@ -132,6 +136,8 @@ export function segmentCues(cues: readonly Cue[], options: SegmentOptions = {}):
 
   const segments: TextSegment[] = [];
   let buffer: Piece[] = [];
+  // Does the buffered text begin at a sentence boundary?
+  let startsClean = true;
 
   const bufferText = (): string => buffer.map((p) => p.text).join(' ');
 
@@ -147,7 +153,7 @@ export function segmentCues(cues: readonly Cue[], options: SegmentOptions = {}):
       endMs: pieces[pieces.length - 1]!.endMs,
       text,
       wordCount,
-      complete: endsSentence(text),
+      complete: startsClean && endsSentence(text),
     });
   };
 
@@ -163,6 +169,9 @@ export function segmentCues(cues: readonly Cue[], options: SegmentOptions = {}):
       if (overDuration || overWords) {
         emit(buffer, bufferText());
         buffer = [];
+        // The flushed text had not finished its sentence, so what follows
+        // starts mid-thought.
+        startsClean = false;
       }
     }
 
@@ -199,6 +208,7 @@ export function segmentCues(cues: readonly Cue[], options: SegmentOptions = {}):
       ];
 
       emit(taken, joined.slice(0, end));
+      startsClean = true;
     }
   }
 

@@ -1,0 +1,1 @@
+ALTER TABLE "word_occurrence" ADD COLUMN "forms" text[];

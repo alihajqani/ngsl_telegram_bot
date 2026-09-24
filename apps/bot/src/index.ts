@@ -1,11 +1,17 @@
 import { RedisAdapter } from '@grammyjs/storage-redis';
 import { assertDatabaseReady, closeDatabase } from '@ngsl/db';
-import { closeClipRenderQueue, closeConnection } from '@ngsl/queue';
+import { closeVideoRenderQueue, closeConnection } from '@ngsl/queue';
 import { addLogSink, config, createLogger, redactedConfig } from '@ngsl/shared';
 import { Bot, GrammyError, HttpError, session } from 'grammy';
 import { run, sequentialize, type RunnerHandle } from '@grammyjs/runner';
 import { Redis } from 'ioredis';
-import { clipsHandler } from './handlers/clips.js';
+import {
+  clipNavHandler,
+  clipsHandler,
+  clipVoteHandler,
+  searchHandler,
+  searchPromptHandler,
+} from './handlers/clips.js';
 import { collocationsHandler, examplesHandler } from './handlers/content.js';
 import { newWordsHandler, reviewAnswerHandler, reviewHandler } from './handlers/sessions.js';
 import {
@@ -32,7 +38,7 @@ import {
 } from './handlers/admin.js';
 import { digestOffHandler, settingsCallbackHandler, settingsHandler } from './handlers/settings.js';
 import { flushMonitor, isMonitorEnabled, reportLog } from '@ngsl/monitor';
-import { CB, CB_PATTERN, menuKeyFor, type MenuKey } from './keyboards.js';
+import { CB, CB_PATTERN, isEnglishQuery, menuKeyFor, type MenuKey } from './keyboards.js';
 import { activityTracker, channelGuard, localeContext } from './middlewares.js';
 import { initialSession, type BotContext, type SessionData } from './types.js';
 
@@ -42,6 +48,7 @@ const COMMANDS = [
   { command: 'start', description: 'Start / restart' },
   { command: 'newwords', description: 'Learn new words' },
   { command: 'review', description: 'Review due words' },
+  { command: 'search', description: 'Search a word or phrase in clips' },
   { command: 'write', description: 'Writing practice' },
   { command: 'streak', description: 'Streak and points' },
   { command: 'league', description: "This week's league" },
@@ -55,6 +62,7 @@ const COMMANDS_FA = [
   { command: 'start', description: 'شروع / شروع دوباره' },
   { command: 'newwords', description: 'واژه‌های جدید' },
   { command: 'review', description: 'مرور واژه‌ها' },
+  { command: 'search', description: 'جست‌وجوی واژه یا عبارت در کلیپ‌ها' },
   { command: 'write', description: 'تمرین نوشتن' },
   { command: 'streak', description: 'امتیاز و رشته' },
   { command: 'league', description: 'لیگ هفته' },
@@ -72,6 +80,7 @@ const MENU_ROUTES: Record<MenuKey, (ctx: BotContext) => Promise<void>> = {
   streak: streakHandler,
   league: leagueHandler,
   lazy: lazyBoardHandler,
+  search: searchPromptHandler,
   settings: settingsHandler,
   admin: adminHandler,
 };
@@ -127,6 +136,7 @@ async function main(): Promise<void> {
   bot.command('league', leagueHandler);
   bot.command('lazy', lazyBoardHandler);
   bot.command('settings', settingsHandler);
+  bot.command('search', (ctx) => (ctx.match ? searchHandler(ctx, ctx.match) : searchPromptHandler(ctx)));
   bot.command('admin', adminHandler);
 
   // ── Callback queries ──────────────────────────────────────────────────────
@@ -145,6 +155,8 @@ async function main(): Promise<void> {
   bot.callbackQuery(CB_PATTERN.collocations, collocationsHandler);
   bot.callbackQuery(CB_PATTERN.clips, clipsHandler);
   bot.callbackQuery(CB_PATTERN.review, reviewAnswerHandler);
+  bot.callbackQuery(CB_PATTERN.clipNav, clipNavHandler);
+  bot.callbackQuery(CB_PATTERN.clipVote, clipVoteHandler);
   // Anything unmatched still needs acknowledging or the client spins forever.
   bot.on('callback_query:data', (ctx) => ctx.answerCallbackQuery());
 
@@ -165,7 +177,18 @@ async function main(): Promise<void> {
     }
 
     const key = menuKeyFor(ctx.message.text);
-    return key ? MENU_ROUTES[key](ctx) : next();
+    if (key) {
+      ctx.session.awaitingSearch = false;
+      return MENU_ROUTES[key](ctx);
+    }
+
+    // YouGlish-style: typing an English word or phrase searches the clips,
+    // with or without pressing 🔎 first.
+    if (ctx.session.awaitingSearch || isEnglishQuery(ctx.message.text)) {
+      ctx.session.awaitingSearch = false;
+      return searchHandler(ctx, ctx.message.text);
+    }
+    return next();
   });
 
   bot.catch((error) => {
@@ -195,7 +218,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     log.info('Shutting down', { signal });
     if (runner.isRunning()) await runner.stop();
-    await closeClipRenderQueue();
+    await closeVideoRenderQueue();
     await closeConnection();
     await flushMonitor();
     await redis.quit();

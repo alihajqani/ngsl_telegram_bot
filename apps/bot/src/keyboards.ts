@@ -20,6 +20,9 @@ export const CB = {
   broadcastCancel: 'adm:cx',
   /** Sent by the worker under the nightly boards message. */
   digestOff: 'dg:off',
+  /** Move within a clip deck. `deck` is `w<wordId>` for a word, `q` for a search. */
+  clipNav: (deck: string, position: number) => `cv:${deck}:${position}`,
+  clipVote: (segmentId: number, vote: 'l' | 'd') => `vt:${segmentId}:${vote}`,
 } as const;
 
 export const CB_PATTERN = {
@@ -27,6 +30,8 @@ export const CB_PATTERN = {
   collocations: /^co:(\d+)$/,
   clips: /^cl:(\d+)$/,
   review: /^rv:([cwk]):(\d+)$/,
+  clipNav: /^cv:(w\d+|q):(\d+)$/,
+  clipVote: /^vt:(\d+):([ld])$/,
 } as const;
 
 /**
@@ -37,9 +42,10 @@ export const CB_PATTERN = {
  */
 export const MENU_LAYOUT = [
   ['newWords', 'review'],
-  ['writing', 'progress'],
-  ['streak', 'league'],
-  ['lazy', 'settings'],
+  ['search', 'writing'],
+  ['progress', 'streak'],
+  ['league', 'lazy'],
+  ['settings'],
 ] as const;
 
 export type MenuKey = (typeof MENU_LAYOUT)[number][number] | 'admin';
@@ -108,4 +114,38 @@ export function reviewCardKeyboard(wordId: number, lemma: string): InlineKeyboar
 
 export function dictionaryUrl(lemma: string): string {
   return `https://dictionary.cambridge.org/dictionary/english/${encodeURIComponent(lemma)}`;
+}
+
+/**
+ * The player under a clip: arrows that wrap around like a playlist, votes on
+ * the sentence, and a link to the same moment in the full video on YouTube.
+ */
+export function clipKeyboard(
+  deck: string,
+  index: number,
+  total: number,
+  clip: { segmentId: number; ytVideoId: string; startMs: number },
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  if (total > 1) {
+    keyboard
+      .text(t('clips.prev'), CB.clipNav(deck, (index - 1 + total) % total))
+      .text(t('clips.next'), CB.clipNav(deck, (index + 1) % total))
+      .row();
+  }
+  const seconds = Math.floor(clip.startMs / 1000);
+  return keyboard
+    .text(t('clips.like'), CB.clipVote(clip.segmentId, 'l'))
+    .text(t('clips.dislike'), CB.clipVote(clip.segmentId, 'd'))
+    .url(t('clips.youtube'), `https://www.youtube.com/watch?v=${clip.ytVideoId}&t=${seconds}s`);
+}
+
+/** Longest search accepted: a word or a short phrase, as on YouGlish. */
+const MAX_QUERY_WORDS = 6;
+
+/** Plain English text a learner typed to search clips, not a command or a sentence in Persian. */
+export function isEnglishQuery(text: string): boolean {
+  const trimmed = text.trim();
+  if (!/^[A-Za-z][A-Za-z'’ -]*$/.test(trimmed) || trimmed.length > 60) return false;
+  return trimmed.split(/\s+/).length <= MAX_QUERY_WORDS;
 }

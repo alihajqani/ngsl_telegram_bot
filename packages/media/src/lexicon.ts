@@ -93,15 +93,28 @@ export class Lexicon {
     return undefined;
   }
 
-  /** Distinct NGSL word IDs appearing in a sentence. */
-  match(text: string): Set<number> {
-    const found = new Set<number>();
+  /**
+   * Each NGSL word in a sentence with the surface forms it appeared as
+   * ("went" for go, "don't" for both do and not), lowercased with straight
+   * apostrophes. Stored with the occurrence so a caption can bold exactly the
+   * right tokens without the bot carrying a lemmatizer.
+   */
+  matchForms(text: string): Map<number, string[]> {
+    const found = new Map<number, string[]>();
     for (const raw of normalizeApostrophes(text).toLowerCase().match(TOKEN) ?? []) {
       for (const token of CONTRACTIONS.get(raw) ?? [raw]) {
         const id = this.resolve(token);
-        if (id !== undefined) found.add(id);
+        if (id === undefined) continue;
+        const forms = found.get(id) ?? [];
+        if (!forms.includes(raw)) forms.push(raw);
+        found.set(id, forms);
       }
     }
     return found;
+  }
+
+  /** Distinct NGSL word IDs appearing in a sentence. */
+  match(text: string): Set<number> {
+    return new Set(this.matchForms(text).keys());
   }
 }

@@ -7,6 +7,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -24,9 +25,9 @@ import {
  *
  * Three things drove this design, all of them impossible in v1's document model:
  *
- *  1. `user_clip_seen` makes "never show the same clip twice" a join instead of
- *     an unrepresentable requirement. v1 stored clips as an embedded array with
- *     no stable identity, so there was nothing to record as "seen".
+ *  1. `user_segment_seen` makes "never show the same clip twice" a join instead
+ *     of an unrepresentable requirement. v1 stored clips as an embedded array
+ *     with no stable identity, so there was nothing to record as "seen".
  *  2. `word_occurrence` is a precomputed inverted index over the subtitle corpus.
  *     The query vocabulary is closed (2,809 NGSL lemmas known at build time), so
  *     the posting list is built once at ingest and served with `WHERE word_id = $1`.
@@ -61,6 +62,8 @@ export const dictionaryEnum = pgEnum('dictionary', ['cambridge', 'oxford']);
 export const reviewResultEnum = pgEnum('review_result', ['correct', 'wrong', 'known']);
 export const subStatusEnum = pgEnum('sub_status', ['pending', 'manual', 'none']);
 export const videoStatusEnum = pgEnum('video_status', ['live', 'dead']);
+/** Whether a video's clips have been cut: `rendered` after a pass, `failed` if the source could not be used. */
+export const mediaStatusEnum = pgEnum('media_status', ['none', 'rendered', 'failed']);
 export const exampleSourceEnum = pgEnum('example_source', ['corpus', 'llm']);
 export const phraseKindEnum = pgEnum('phrase_kind', ['collocation', 'idiom']);
 export const voteKindEnum = pgEnum('vote_kind', ['like', 'dislike']);
@@ -246,7 +249,7 @@ export const reviewEvent = pgTable(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Corpus — curated channels → videos → segments → occurrences → clips
+// Corpus — curated channels → videos → segments → occurrences → segment media
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The whitelist. Quality is enforced here, once, instead of per search result. */
@@ -283,6 +286,14 @@ export const video = pgTable(
      */
     subStatus: subStatusEnum('sub_status').notNull().default('pending'),
     status: videoStatusEnum('status').notNull().default('live'),
+    /**
+     * Position in the channel feed at enumeration, 1 = newest upload. The feed
+     * is read once and cached here, so later ingest runs pick the next videos
+     * from the database instead of paging through YouTube again.
+     */
+    feedIndex: integer('feed_index'),
+    mediaStatus: mediaStatusEnum('media_status').notNull().default('none'),
+    mediaRenderedAt: timestamp('media_rendered_at', { withTimezone: true }),
     healthCheckedAt: timestamp('health_checked_at', { withTimezone: true }),
     indexedAt: timestamp('indexed_at', { withTimezone: true }),
     createdAt: createdAt(),
@@ -290,12 +301,34 @@ export const video = pgTable(
   (t) => [
     uniqueIndex('uq_video_yt_id').on(t.ytVideoId),
     index('idx_video_channel').on(t.channelId),
+    // Ingest picks the next pending videos of a channel in feed order.
+    index('idx_video_feed').on(t.channelId, t.feedIndex),
     // Ingest queue: pending videos, oldest first.
     index('idx_video_pending').on(t.createdAt).where(sql`${t.subStatus} = 'pending'`),
     // Weekly health sync: least-recently-probed live videos.
     index('idx_video_health').on(t.healthCheckedAt).where(sql`${t.status} = 'live'`),
   ],
 );
+
+/**
+ * The raw subtitle track, kept so a video is never asked of YouTube twice:
+ * re-segmenting or re-aligning works from this copy.
+ */
+export const videoSubtitle = pgTable('video_subtitle', {
+  videoId: integer('video_id')
+    .primaryKey()
+    .references(() => video.id, { onDelete: 'cascade' }),
+  lang: varchar('lang', { length: 16 }),
+  vtt: text('vtt').notNull(),
+  fetchedAt: tsColumn('fetched_at'),
+});
+
+/** One aligned word inside a segment: text and absolute times in the source video. */
+export interface WordTiming {
+  w: string;
+  s: number;
+  e: number;
+}
 
 /**
  * A sentence-merged subtitle span. v1 stored raw VTT cues, which break
@@ -312,12 +345,30 @@ export const segment = pgTable(
     endMs: integer('end_ms').notNull(),
     text: text('text').notNull(),
     wordCount: smallint('word_count').notNull(),
+    /**
+     * A whole sentence: it starts where the previous one ended and closes on
+     * terminal punctuation. Only complete segments are cut into clips, so a
+     * learner never gets half a thought.
+     */
+    complete: boolean('complete').notNull().default(false),
     active: boolean('active').notNull().default(true),
+    /** Forced-alignment result: where the first and last words are really spoken. */
+    alignedStartMs: integer('aligned_start_ms'),
+    alignedEndMs: integer('aligned_end_ms'),
+    /**
+     * Mean per-character confidence of the alignment, in [0, 1]. -1 marks a
+     * sentence the aligner could not place (an edge word it cannot spell, like
+     * a number), so it is cut from subtitle timing and never re-sent.
+     */
+    alignScore: real('align_score'),
+    wordTimings: jsonb('word_timings').$type<WordTiming[]>(),
   },
   (t) => [
     index('idx_segment_video').on(t.videoId),
     uniqueIndex('uq_segment_span').on(t.videoId, t.startMs),
     check('ck_segment_span', sql`${t.endMs} > ${t.startMs}`),
+    // Free-text clip search (any word or phrase, YouGlish-style).
+    index('idx_segment_fts').using('gin', sql`to_tsvector('english', ${t.text})`),
   ],
 );
 
@@ -338,6 +389,8 @@ export const wordOccurrence = pgTable(
       .references(() => segment.id, { onDelete: 'cascade' }),
     /** Readability heuristic: length, completeness, rare-word density. */
     qualityScore: real('quality_score').notNull().default(0),
+    /** The surface forms the word appeared as ("went" for go) — what a caption bolds. */
+    forms: text('forms').array(),
   },
   (t) => [
     // THE hot path — "give me the best occurrences of this word".
@@ -348,73 +401,70 @@ export const wordOccurrence = pgTable(
 );
 
 /**
- * A rendered, sendable clip. `telegram_file_id` is the whole economic model:
- * minted once by an expensive yt-dlp render + upload, then reused forever at
- * zero cost. It is NEVER expired — v1's 60-day TTL threw these away.
+ * The rendered clip of one sentence.
+ *
+ * Keyed by segment, not by (segment, word): the cut depends only on the
+ * sentence, so one file serves every NGSL word the sentence contains. The v2
+ * model rendered and uploaded the same bytes once per word.
+ *
+ * `telegram_file_id` is the whole economic model: minted once by a render and
+ * an upload, then reused forever at zero cost.
  */
-export const clip = pgTable(
-  'clip',
+export const segmentMedia = pgTable(
+  'segment_media',
   {
-    id: serial('id').primaryKey(),
+    segmentId: bigint('segment_id', { mode: 'number' })
+      .primaryKey()
+      .references(() => segment.id, { onDelete: 'cascade' }),
+    telegramFileId: text('telegram_file_id').notNull(),
+    /** The actual cut, in source-video time. */
+    startMs: integer('start_ms').notNull(),
+    endMs: integer('end_ms').notNull(),
+    width: smallint('width'),
+    height: smallint('height'),
+    sizeBytes: integer('size_bytes'),
+    /** True when the cut came from forced alignment rather than subtitle timing. */
+    aligned: boolean('aligned').notNull().default(false),
+    likes: integer('likes').notNull().default(0),
+    dislikes: integer('dislikes').notNull().default(0),
+    /** Set by the vote policy, or by an admin. */
+    disabled: boolean('disabled').notNull().default(false),
+    renderedAt: tsColumn('rendered_at'),
+  },
+  (t) => [index('idx_segment_media_servable').on(t.segmentId).where(sql`not ${t.disabled}`)],
+);
+
+/** Which clips a learner has already watched, so every tap brings fresh ones. */
+export const userSegmentSeen = pgTable(
+  'user_segment_seen',
+  {
+    userId: integer('user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'cascade' }),
     segmentId: bigint('segment_id', { mode: 'number' })
       .notNull()
       .references(() => segment.id, { onDelete: 'cascade' }),
-    wordId: integer('word_id')
-      .notNull()
-      .references(() => word.id, { onDelete: 'cascade' }),
-    telegramFileId: text('telegram_file_id'),
-    startMs: integer('start_ms').notNull(),
-    endMs: integer('end_ms').notNull(),
-    renderedAt: timestamp('rendered_at', { withTimezone: true }),
-    likes: integer('likes').notNull().default(0),
-    dislikes: integer('dislikes').notNull().default(0),
-    /** Set by the vote policy: ≥10 votes and dislikes > 60% of likes. */
-    disabled: boolean('disabled').notNull().default(false),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('uq_clip_segment_word').on(t.segmentId, t.wordId),
-    // Serving index: only rendered, enabled clips are ever selected.
-    index('idx_clip_servable')
-      .on(t.wordId)
-      .where(sql`${t.telegramFileId} is not null and not ${t.disabled}`),
-    // Render queue: what still needs minting.
-    index('idx_clip_unrendered').on(t.wordId).where(sql`${t.telegramFileId} is null`),
-  ],
-);
-
-/** The uniqueness ledger — 5 fresh clips on learn, 5 different on every review. */
-export const userClipSeen = pgTable(
-  'user_clip_seen',
-  {
-    userId: integer('user_id')
-      .notNull()
-      .references(() => appUser.id, { onDelete: 'cascade' }),
-    clipId: integer('clip_id')
-      .notNull()
-      .references(() => clip.id, { onDelete: 'cascade' }),
     seenAt: tsColumn('seen_at'),
   },
   (t) => [
-    primaryKey({ columns: [t.userId, t.clipId] }),
-    // Fallback path when a pool is exhausted: re-serve least-recently-seen.
-    index('idx_user_clip_seen_recency').on(t.userId, t.seenAt),
+    primaryKey({ columns: [t.userId, t.segmentId] }),
+    index('idx_user_segment_seen_recency').on(t.userId, t.seenAt),
   ],
 );
 
-export const clipVote = pgTable(
-  'clip_vote',
+export const segmentVote = pgTable(
+  'segment_vote',
   {
     userId: integer('user_id')
       .notNull()
       .references(() => appUser.id, { onDelete: 'cascade' }),
-    clipId: integer('clip_id')
+    segmentId: bigint('segment_id', { mode: 'number' })
       .notNull()
-      .references(() => clip.id, { onDelete: 'cascade' }),
+      .references(() => segment.id, { onDelete: 'cascade' }),
     vote: voteKindEnum('vote').notNull(),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.clipId] })],
+  (t) => [primaryKey({ columns: [t.userId, t.segmentId] })],
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -640,8 +690,7 @@ export type Video = typeof video.$inferSelect;
 export type Segment = typeof segment.$inferSelect;
 export type NewSegment = typeof segment.$inferInsert;
 export type WordOccurrence = typeof wordOccurrence.$inferSelect;
-export type Clip = typeof clip.$inferSelect;
-export type NewClip = typeof clip.$inferInsert;
+export type SegmentMedia = typeof segmentMedia.$inferSelect;
 export type PointsLedger = typeof pointsLedger.$inferSelect;
 export type UserStreak = typeof userStreak.$inferSelect;
 export type WritingSession = typeof writingSession.$inferSelect;

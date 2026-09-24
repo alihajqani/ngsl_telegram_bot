@@ -144,6 +144,29 @@ describe('segmentCues', () => {
     expect(segments[0]?.complete).toBe(false);
   });
 
+  it('marks whole sentences complete', () => {
+    const segments = segmentCues([
+      cue(0, 3_000, 'The apple fell from the tree.'),
+      cue(3_000, 6_000, 'Newton saw it happen.'),
+    ]);
+    expect(segments.map((s) => s.complete)).toEqual([true, true]);
+  });
+
+  it('never calls the tail of a force-flushed sentence complete', () => {
+    // The first segment is cut by the word cap mid-sentence, so the next one
+    // starts mid-thought even though it ends on a full stop.
+    const segments = segmentCues(
+      [
+        cue(0, 3_000, 'one two three four five six seven eight'),
+        cue(3_000, 6_000, 'nine ten eleven twelve and then it ended.'),
+        cue(6_000, 9_000, 'A new sentence starts cleanly here.'),
+      ],
+      { maxWords: 10 },
+    );
+    expect(segments).toHaveLength(3);
+    expect(segments.map((s) => s.complete)).toEqual([false, false, true]);
+  });
+
   it('skips rolling-caption repeats', () => {
     const segments = segmentCues([
       cue(0, 2_000, 'the apple fell from the tree'),

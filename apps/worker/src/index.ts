@@ -2,9 +2,9 @@ import { mkdir } from 'node:fs/promises';
 import { assertDatabaseReady, closeDatabase } from '@ngsl/db';
 import { addLogSink, config, createLogger, redactedConfig } from '@ngsl/shared';
 import type { Worker } from 'bullmq';
-import { closeClipRenderQueue, closeConnection, runPrewarm } from '@ngsl/queue';
+import { closeConnection, closeVideoRenderQueue, runPrewarm } from '@ngsl/queue';
 import { isVaultConfigured } from './vault.js';
-import { startClipRenderWorker } from './workers/clip-render.worker.js';
+import { startVideoRenderWorker } from './workers/video-render.worker.js';
 import { startScheduler } from './scheduler.js';
 import { flushMonitor, isMonitorEnabled, reportLog } from '@ngsl/monitor';
 
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
 
   const workers: Worker[] = [];
   if (isVaultConfigured()) {
-    workers.push(startClipRenderWorker());
+    workers.push(startVideoRenderWorker());
   }
   workers.push(await startScheduler());
 
@@ -48,9 +48,9 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     log.info('Draining workers', { signal });
-    // close() waits for in-flight jobs, so a half-uploaded clip is never lost.
+    // close() waits for in-flight jobs; each clip is saved as soon as it is uploaded.
     await Promise.all(workers.map((w) => w.close()));
-    await closeClipRenderQueue();
+    await closeVideoRenderQueue();
     await closeConnection();
     await flushMonitor();
     await closeDatabase();

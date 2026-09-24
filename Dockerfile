@@ -94,5 +94,8 @@ FROM media-tools AS worker
 ENV NODE_ENV=production
 COPY --from=build --chown=node:node /app /app
 COPY --chown=node:node data/ngsl.csv data/channels.yml ./data/
+# The clip scratch dir is a volume shared with the aligner. Creating it here,
+# owned by node, makes a fresh volume inherit an owner the worker can write as.
+RUN mkdir -p /tmp/ngsl-clips && chown node:node /tmp/ngsl-clips
 USER node
 CMD ["node", "apps/worker/dist/index.js"]

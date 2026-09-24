@@ -91,7 +91,7 @@ export async function adminStats(database: Database = db()): Promise<AdminStats>
       (select coalesce(sum(delta), 0)::int from ${pointsLedger})                     as "pointsAwarded",
       (select count(*)::int from ${video} where status = 'live')                    as "liveVideos",
       (select count(*)::int from ${video} where status = 'dead')                    as "deadVideos",
-      (select count(*)::int from clip where telegram_file_id is not null)           as "renderedClips"
+      (select count(*)::int from segment_media where not disabled)                   as "renderedClips"
   `);
   return row!;
 }

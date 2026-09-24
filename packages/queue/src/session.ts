@@ -8,7 +8,7 @@ import {
   type WordCard,
 } from '@ngsl/db';
 import { createLogger } from '@ngsl/shared';
-import { prewarmWords } from './clip-render.queue.js';
+import { prewarmWords } from './video-render.queue.js';
 
 const log = createLogger('queue.session');
 

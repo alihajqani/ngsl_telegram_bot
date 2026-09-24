@@ -19,7 +19,26 @@ export {
 } from './segment.js';
 
 export { Lexicon, type LexiconEntry } from './lexicon.js';
-export { clipWindow, renderClip, type ClipWindow, type ClipWindowOptions } from './clip.js';
+export {
+  cutWindow,
+  snapToSilence,
+  parseSilences,
+  parseLoudness,
+  gainFor,
+  type Span,
+  type CutOptions,
+} from './cut.js';
+export {
+  downloadSource,
+  probe,
+  analyzeAudio,
+  extractSpeechWav,
+  cutClip,
+  type MediaInfo,
+  type AudioAnalysis,
+  type CutResult,
+} from './render.js';
+export { alignSegments, isAlignerConfigured, type Alignment, type AlignRequest } from './align.js';
 export { scoreSegment } from './quality.js';
 export { enumerateChannel, type EnumeratedVideo } from './enumerate.js';
 export { fetchManualSubtitles, pickPreferredTrack, type SubtitleResult } from './subtitles.js';
@@ -36,6 +55,7 @@ export {
 export {
   runYtdlp,
   baseArgs,
+  buildBaseArgs,
   classifyError,
   mapWithConcurrency,
   sleep,

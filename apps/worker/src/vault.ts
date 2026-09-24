@@ -1,5 +1,6 @@
 import { config, createLogger } from '@ngsl/shared';
-import { Bot, InputFile } from 'grammy';
+import type { CutResult } from '@ngsl/media';
+import { Bot, GrammyError, InputFile } from 'grammy';
 
 const log = createLogger('worker.vault');
 
@@ -37,40 +38,72 @@ export function isVaultConfigured(): boolean {
 }
 
 /**
- * Upload a rendered clip and return its reusable `file_id`.
+ * Telegram lets a bot post about 20 messages a minute into one group, and the
+ * vault is one group, often the same one the monitor posts its topics into.
+ * Uploads take 15 of those 20 slots, leaving room for the monitor, instead of
+ * running into 429s mid-video.
+ */
+const UPLOAD_INTERVAL_MS = 4_000;
+const MAX_ATTEMPTS = 4;
+let lastUploadAt = 0;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Upload a cut clip and return its reusable `file_id`.
  *
- * The caption is provenance, not decoration: it makes the vault browsable when
- * a clip needs to be audited or manually pulled.
+ * Dimensions, duration, a thumbnail and `supports_streaming` go with it, so
+ * Telegram shows the right frame at once and starts playback before the file
+ * has finished downloading. The caption is provenance, not decoration: it
+ * makes the vault browsable when a clip needs auditing.
  */
 export async function uploadToVault(
-  filePath: string,
+  clip: CutResult,
   meta: { ytVideoId: string; startMs: number; endMs: number; sentence?: string },
 ): Promise<string> {
   const vault = config().media.vault;
   if (!vault) throw new VaultNotConfiguredError();
 
-  const seconds = Math.round((meta.endMs - meta.startMs) / 1000);
+  const seconds = ((meta.endMs - meta.startMs) / 1000).toFixed(1);
   const caption = [
-    `<code>${meta.ytVideoId}</code> ${(meta.startMs / 1000).toFixed(1)}s +${seconds}s`,
+    `<code>${meta.ytVideoId}</code> ${(meta.startMs / 1000).toFixed(2)}s +${seconds}s`,
     meta.sentence ? escapeHtml(meta.sentence.slice(0, 300)) : undefined,
   ]
     .filter(Boolean)
     .join('\n');
 
-  const message = await vaultBot().api.sendVideo(vault.groupId, new InputFile(filePath), {
-    message_thread_id: vault.threadId,
-    caption,
-    parse_mode: 'HTML',
-    disable_notification: true,
-  });
+  for (let attempt = 1; ; attempt++) {
+    const wait = lastUploadAt + UPLOAD_INTERVAL_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastUploadAt = Date.now();
 
-  const fileId = message.video.file_id;
-  if (!fileId) {
-    throw new Error(`Vault upload returned no file_id for ${meta.ytVideoId}`);
+    try {
+      const message = await vaultBot().api.sendVideo(vault.groupId, new InputFile(clip.path), {
+        message_thread_id: vault.threadId,
+        caption,
+        parse_mode: 'HTML',
+        disable_notification: true,
+        supports_streaming: true,
+        width: clip.width,
+        height: clip.height,
+        duration: Math.max(1, Math.round(clip.durationMs / 1000)),
+        thumbnail: new InputFile(clip.thumbnailPath),
+      });
+
+      const fileId = message.video?.file_id;
+      if (!fileId) throw new Error(`Vault upload returned no video for ${meta.ytVideoId}`);
+      log.debug('Minted file_id', { videoId: meta.ytVideoId });
+      return fileId;
+    } catch (error) {
+      const retryAfter =
+        error instanceof GrammyError && error.error_code === 429
+          ? (error.parameters.retry_after ?? 30)
+          : undefined;
+      if (retryAfter === undefined || attempt >= MAX_ATTEMPTS) throw error;
+      log.warn('Vault upload rate-limited; waiting', { videoId: meta.ytVideoId, retryAfter });
+      await sleep((retryAfter + 1) * 1000);
+    }
   }
-
-  log.debug('Minted file_id', { videoId: meta.ytVideoId });
-  return fileId;
 }
 
 function escapeHtml(text: string): string {

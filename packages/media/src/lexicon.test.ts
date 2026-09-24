@@ -81,3 +81,22 @@ describe('Lexicon.match', () => {
     expect(lexicon.match('zzz qqq').size).toBe(0);
   });
 });
+
+describe('Lexicon.matchForms', () => {
+  const forms = (text: string, lemma: string) => lexicon.matchForms(text).get(id(lemma));
+
+  it('records the surface forms each word appeared as', () => {
+    expect(forms('The Apples fell, and an apple fell again.', 'apple')).toEqual(['apples', 'apple']);
+    expect(forms('She went home; we go too.', 'go')).toEqual(['went', 'go']);
+  });
+
+  it('records a contraction as the form of each word inside it', () => {
+    expect(forms('I don’t know.', 'do')).toEqual(["don't"]);
+    expect(forms('I don’t know.', 'not')).toEqual(["don't"]);
+  });
+
+  it('agrees with match on which words are present', () => {
+    const text = 'The children didn’t run to the trees.';
+    expect(new Set(lexicon.matchForms(text).keys())).toEqual(lexicon.match(text));
+  });
+});

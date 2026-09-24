@@ -80,13 +80,31 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-ngsl}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ngsl}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # Optional: without the aligner, cuts fall back to subtitle timing snapped to pauses.
+      ALIGNER_URL: http://aligner:8000
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     dns: ['8.8.8.8', '1.1.1.1']
     volumes:
-      # Cookies arrive at runtime, read-only. Never baked into the image.
+      # Cookies arrive at runtime, read-only. Never baked into the image. The
+      # worker copies them to a private writable file, since yt-dlp writes the
+      # jar back on exit and would crash on this read-only mount.
       - ${YOUTUBE_COOKIES_HOST_PATH:-/dev/null}:/run/secrets/youtube_cookies.txt:ro
+      # Scratch shared with the aligner: it reads the speech WAV from here.
+      - media_tmp:/tmp/ngsl-clips
+    networks: [ngsl]
+
+  # ── Aligner (forced alignment for clean clip cuts) ─────────────────────────
+  # Not published on the host: only the worker talks to it. CPU-only; the
+  # model is baked into the image, so it needs no network at runtime.
+  aligner:
+    build:
+      context: services/aligner
+    container_name: ngsl-v2-aligner
+    restart: unless-stopped
+    volumes:
+      - media_tmp:/tmp/ngsl-clips:ro
     networks: [ngsl]
 
 networks:
@@ -96,3 +114,4 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  media_tmp:

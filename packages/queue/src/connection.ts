@@ -11,7 +11,7 @@ import { Redis } from 'ioredis';
  */
 
 export const QUEUE = {
-  clipRender: 'clip.render',
+  videoRender: 'video.render',
   corpusIngest: 'corpus.ingest',
   notify: 'notify',
   llm: 'llm',
@@ -27,15 +27,20 @@ export const PRIORITY = {
 let connection: Redis | undefined;
 
 /** BullMQ requires `maxRetriesPerRequest: null` on its blocking connections. */
-export function redisConnection(): ConnectionOptions {
+export function redisClient(): Redis {
   connection ??= new Redis(config().redis.url, { maxRetriesPerRequest: null });
   return connection;
 }
 
+export function redisConnection(): ConnectionOptions {
+  return redisClient();
+}
+
 export const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
-  // yt-dlp failures are usually rate-related, so back off generously.
-  backoff: { type: 'exponential', delay: 30_000 },
+  // A failed download is retried slowly. The bot wall is not retried at all:
+  // it trips the breaker in bot-wall.ts and the job waits out the pause.
+  backoff: { type: 'exponential', delay: 120_000 },
   removeOnComplete: { count: 500 },
   removeOnFail: { count: 2_000 },
 };

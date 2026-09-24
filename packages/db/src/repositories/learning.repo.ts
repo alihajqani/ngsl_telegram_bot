@@ -110,10 +110,10 @@ export async function selectNewWords(
                  partition by w.bucket
                  order by (
                    exists (
-                     select 1 from clip c
-                      where c.word_id = w.id
-                        and c.telegram_file_id is not null
-                        and not c.disabled
+                     select 1 from word_occurrence o
+                       join segment_media m on m.segment_id = o.segment_id
+                      where o.word_id = w.id
+                        and not m.disabled
                    )
                  ) desc, random()
                ) as rn
@@ -316,6 +316,18 @@ export async function getWordLemma(
     .from(word)
     .where(eq(word.id, wordId));
   return row?.lemma;
+}
+
+/** The NGSL word a search query names exactly, if any ("Apple" → apple). */
+export async function findWordByLemma(
+  lemma: string,
+  database: Database = db(),
+): Promise<number | undefined> {
+  const [row] = await database
+    .select({ id: word.id })
+    .from(word)
+    .where(eq(word.lemma, lemma.trim().toLowerCase()));
+  return row?.id;
 }
 
 export async function countDeck(userId: number, database: Database = db()): Promise<number> {

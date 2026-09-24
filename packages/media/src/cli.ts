@@ -12,8 +12,9 @@ Usage: pnpm ingest [options]
 
   --channels=<path>  Path to channels.yml       (default: data/channels.yml)
   --channel=<slug>   Ingest only this channel   (default: all enabled)
-  --limit=<n>        Videos per channel         (default: 25)
+  --limit=<n>        Unprobed videos per channel (default: 25)
   --delay=<ms>       Pause between videos       (default: INGEST_REQUEST_DELAY_MS)
+  --refresh          Re-read channel feeds even if the cached copy is fresh
   --list             Print the whitelist and exit
 `;
 
@@ -67,7 +68,8 @@ async function main(): Promise<void> {
 
   const results: IngestStats[] = [];
   for (const channel of selected) {
-    results.push(await ingestChannel(channel, lexicon, { limit, delayMs }, db()));
+    const refresh = argv.includes('--refresh');
+    results.push(await ingestChannel(channel, lexicon, { limit, delayMs, refresh }, db()));
   }
 
   report(selected, results);

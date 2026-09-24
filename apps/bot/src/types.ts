@@ -17,10 +17,27 @@ export interface SessionData {
   writingSessionId?: number;
   /** Admin is composing a broadcast. */
   awaitingBroadcast?: boolean;
+  /** The next text message is a clip search. */
+  awaitingSearch?: boolean;
+  /**
+   * The clip deck on screen: its order is fixed when opened, so the arrows
+   * page through a stable list even as clips get marked seen.
+   */
+  clipDeck?: ClipDeckState;
   /** Cached so the locale middleware can skip a DB read on most updates. */
   locale?: LocaleCode;
   /** Internal user id, cached for the same reason. */
   userId?: number;
+}
+
+export interface ClipDeckState {
+  /** `w<wordId>` or `q` — what the arrows' callback data refers to. */
+  key: string;
+  wordId?: number;
+  query?: string;
+  /** Shown in the caption header: the lemma or the search text. */
+  title: string;
+  segmentIds: number[];
 }
 
 export function initialSession(): SessionData {

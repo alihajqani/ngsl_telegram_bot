@@ -1,14 +1,22 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { db, type Database } from '../client.js';
-import { clip, segment, userClipSeen, video, wordOccurrence } from '../schema.js';
+import {
+  channel,
+  segment,
+  segmentMedia,
+  segmentVote,
+  userSegmentSeen,
+  video,
+  wordOccurrence,
+  type WordTiming,
+} from '../schema.js';
 
 /**
- * Clip selection and the per-user "seen" ledger.
+ * Clips: serving, the per-user "seen" ledger, votes, and render planning.
  *
- * The requirement — a learner never sees the same clip twice, five fresh clips
- * on learning and five different ones on every review — is unrepresentable in
- * v1's model, where clips were an embedded array with no stable identity. Here
- * it is an anti-join.
+ * A clip is one sentence (`segment`) cut once into `segment_media`. It serves
+ * every NGSL word in that sentence, so the words map to clips through
+ * `word_occurrence` rather than through a per-word copy of the same file.
  */
 
 /**
@@ -17,301 +25,502 @@ import { clip, segment, userClipSeen, video, wordOccurrence } from '../schema.js
  */
 type Row<T> = T & Record<string, unknown>;
 
-export interface ServableClip {
-  clipId: number;
-  ytVideoId: string;
-  startMs: number;
-  endMs: number;
-  telegramFileId: string;
-  sentence: string;
-}
+/**
+ * A list of ids as ONE Postgres array parameter.
+ *
+ * Interpolating a JS array into `sql` expands it to a tuple — `($1, $2, $3)` —
+ * which Postgres cannot cast to an array, so `= any(${ids}::int[])` fails at
+ * runtime while type-checking cleanly. An array literal string is a single
+ * parameter, and `'{}'` covers the empty list.
+ */
+const idArray = (ids: readonly number[], type: 'int' | 'bigint') =>
+  sql`${`{${ids.map((id) => Math.trunc(Number(id))).join(',')}}`}::${sql.raw(type)}[]`;
 
-export interface ClipRenderJob {
-  clipId: number;
-  ytVideoId: string;
-  startMs: number;
-  endMs: number;
+// ─────────────────────────────────────────────────────────────────────────────
+// Serving
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ClipDeck {
+  /** Ordered: never-seen clips first, spread across videos; then least recently seen. */
+  segmentIds: number[];
+  unseen: number;
 }
 
 /**
- * Materialize clip rows for a word from its best occurrences.
+ * The order a learner meets a word's clips in.
  *
- * The window is computed here, in SQL, and stored on the row — so a clip's
- * bounds are fixed forever and a re-render reproduces identical bytes. Done as
- * one statement per word rather than a round trip per occurrence.
+ * Unseen clips come first, and within them the first clip of every video comes
+ * before any video's second (`row_number() partition by video`), so paging
+ * through the deck moves between speakers instead of walking one talk. Seen
+ * clips follow, least recently seen first: a repeat beats an empty screen.
+ *
+ * Not filtered on `video.status`: a rendered clip is a file in Telegram's CDN,
+ * and a source removed from YouTube does not stop it playing.
  */
-export async function ensureClipsForWord(
+export async function clipDeckForWord(
+  userId: number,
   wordId: number,
-  target: number,
-  window: { leadMs: number; maxMs: number; tailMs?: number },
+  limit: number,
   database: Database = db(),
-): Promise<number> {
-  const { leadMs, maxMs, tailMs = 500 } = window;
-
-  const result = await database.execute(sql`
-    insert into ${clip} (segment_id, word_id, start_ms, end_ms)
-    select segment_id, word_id, start_ms, end_ms
+): Promise<ClipDeck> {
+  const rows = await database.execute<Row<{ segmentId: number; seen: boolean }>>(sql`
+    select segment_id as "segmentId", seen_at is not null as seen
       from (
-        select o.segment_id,
-               o.word_id,
-               greatest(0, s.start_ms - ${leadMs}) as start_ms,
-               least(s.end_ms + ${tailMs}, greatest(0, s.start_ms - ${leadMs}) + ${maxMs}) as end_ms,
-               -- Take each video's best occurrence before any video's second.
-               -- Ordering by raw quality alone packs the pool with consecutive
-               -- lines from whichever single talk happens to score highest,
-               -- which leaves the serving query nothing to diversify across.
+        select s.id as segment_id,
+               us.seen_at,
+               (m.likes - m.dislikes) as net,
+               o.quality_score as quality,
                row_number() over (
-                 partition by v.id
-                 order by o.quality_score desc, o.id
+                 partition by s.video_id, (us.seen_at is null)
+                 order by (m.likes - m.dislikes) desc, o.quality_score desc, s.id
                ) as rn
           from ${wordOccurrence} o
           join ${segment} s on s.id = o.segment_id
-          join ${video}   v on v.id = s.video_id
+          join ${segmentMedia} m on m.segment_id = s.id
+          left join ${userSegmentSeen} us on us.segment_id = s.id and us.user_id = ${userId}
          where o.word_id = ${wordId}
            and s.active
-           and v.status = 'live'
+           and not m.disabled
       ) ranked
-     order by rn, random()
-     limit ${target}
-    on conflict (segment_id, word_id) do nothing
-  `);
-  return result.count ?? 0;
-}
-
-/**
- * Clips this user has never seen, for one word.
- *
- * `row_number() partitioned by video` spreads the batch across different
- * speakers and settings: the learner gets one clip from each of five videos
- * rather than five consecutive lines from the same talk.
- */
-export async function selectUnseenClips(
-  userId: number,
-  wordId: number,
-  limit: number,
-  database: Database = db(),
-): Promise<ServableClip[]> {
-  const rows = await database.execute<Row<ServableClip>>(sql`
-    select clip_id       as "clipId",
-           yt_video_id   as "ytVideoId",
-           start_ms      as "startMs",
-           end_ms        as "endMs",
-           telegram_file_id as "telegramFileId",
-           sentence
-      from (
-        select c.id  as clip_id,
-               v.yt_video_id,
-               c.start_ms,
-               c.end_ms,
-               c.telegram_file_id,
-               s.text as sentence,
-               row_number() over (
-                 partition by v.id
-                 order by (c.likes - c.dislikes) desc, random()
-               ) as rn
-          from ${clip} c
-          join ${segment} s on s.id = c.segment_id
-          join ${video}   v on v.id = s.video_id
-         where c.word_id = ${wordId}
-           -- NOTE: deliberately NOT filtered on v.status. A rendered clip is a
-           -- self-contained file in Telegram's CDN; the source video being
-           -- removed from YouTube does not affect playback. Excluding these
-           -- would silently discard the vault's whole anti-fragile payoff —
-           -- the library is meant to outlive its sources.
-           and c.telegram_file_id is not null
-           and not c.disabled
-           and s.active
-           and not exists (
-             select 1 from ${userClipSeen} u
-              where u.user_id = ${userId} and u.clip_id = c.id
-           )
-      ) ranked
-     order by rn, random()
+     order by (seen_at is not null),
+              case when seen_at is null then rn end,
+              seen_at,
+              net desc,
+              quality desc,
+              segment_id
      limit ${limit}
   `);
-  return [...rows];
+  const list = [...rows];
+  return { segmentIds: list.map((r) => Number(r.segmentId)), unseen: list.filter((r) => !r.seen).length };
 }
 
 /**
- * Least-recently-seen clips, used only to top up when a word's pool is
- * exhausted. Showing a repeat beats showing nothing.
+ * Free-text search over every rendered clip: any word or phrase, YouGlish-style.
+ * `phraseto_tsquery` keeps word order, so "look forward to" finds that phrase
+ * rather than three scattered words.
  */
-export async function selectSeenFallback(
+export async function clipDeckForQuery(
   userId: number,
-  wordId: number,
+  query: string,
   limit: number,
-  exclude: readonly number[],
   database: Database = db(),
-): Promise<ServableClip[]> {
-  const rows = await database.execute<Row<ServableClip>>(sql`
-    select c.id as "clipId",
+): Promise<ClipDeck> {
+  const rows = await database.execute<Row<{ segmentId: number; seen: boolean }>>(sql`
+    select s.id as "segmentId", us.seen_at is not null as seen
+      from ${segment} s
+      join ${segmentMedia} m on m.segment_id = s.id
+      left join ${userSegmentSeen} us on us.segment_id = s.id and us.user_id = ${userId}
+     where to_tsvector('english', s.text) @@ phraseto_tsquery('english', ${query})
+       and s.active
+       and not m.disabled
+     order by (us.seen_at is not null),
+              us.seen_at,
+              ts_rank(to_tsvector('english', s.text), phraseto_tsquery('english', ${query})) desc,
+              (m.likes - m.dislikes) desc,
+              s.id
+     limit ${limit}
+  `);
+  const list = [...rows];
+  return { segmentIds: list.map((r) => Number(r.segmentId)), unseen: list.filter((r) => !r.seen).length };
+}
+
+export interface ServableClip {
+  segmentId: number;
+  telegramFileId: string;
+  sentence: string;
+  /**
+   * The sentence with the search hit wrapped in \u0001…\u0002, when served for
+   * a text query. The caller escapes the text and turns the markers into tags.
+   */
+  marked?: string;
+  /** Surface forms of the word being studied ("went" for go), when served for a word. */
+  forms?: string[];
+  ytVideoId: string;
+  channelName: string;
+  /** Where the clip starts in the source, for a "watch on YouTube" link. */
+  startMs: number;
+  likes: number;
+  dislikes: number;
+}
+
+export async function getServableClip(
+  segmentId: number,
+  context: { wordId?: number; query?: string },
+  database: Database = db(),
+): Promise<ServableClip | undefined> {
+  const { wordId, query } = context;
+  const marked = query
+    ? sql`ts_headline('english', s.text, phraseto_tsquery('english', ${query}),
+            'StartSel=' || chr(1) || ', StopSel=' || chr(2) || ', HighlightAll=true')`
+    : sql`null`;
+  const forms =
+    wordId !== undefined
+      ? sql`(select o.forms from ${wordOccurrence} o where o.segment_id = s.id and o.word_id = ${wordId})`
+      : sql`null`;
+
+  const [row] = await database.execute<Row<ServableClip>>(sql`
+    select s.id as "segmentId",
+           m.telegram_file_id as "telegramFileId",
+           s.text as sentence,
+           ${marked} as marked,
+           ${forms} as forms,
            v.yt_video_id as "ytVideoId",
-           c.start_ms as "startMs",
-           c.end_ms as "endMs",
-           c.telegram_file_id as "telegramFileId",
-           s.text as sentence
-      from ${clip} c
-      join ${segment} s on s.id = c.segment_id
-      join ${video}   v on v.id = s.video_id
-      join ${userClipSeen} u on u.clip_id = c.id and u.user_id = ${userId}
-     where c.word_id = ${wordId}
-       -- Same reasoning as selectUnseenClips: a minted file_id keeps working.
-       and c.telegram_file_id is not null
-       and not c.disabled
-       ${exclude.length > 0 ? sql`and c.id <> all(${[...exclude]}::int[])` : sql``}
-     order by u.seen_at asc
-     limit ${limit}
+           c.name as "channelName",
+           m.start_ms as "startMs",
+           m.likes,
+           m.dislikes
+      from ${segment} s
+      join ${segmentMedia} m on m.segment_id = s.id
+      join ${video} v on v.id = s.video_id
+      join ${channel} c on c.id = v.channel_id
+     where s.id = ${segmentId}
   `);
-  return [...rows];
+  if (!row) return undefined;
+  return {
+    ...row,
+    segmentId: Number(row.segmentId),
+    marked: row.marked ?? undefined,
+    forms: row.forms ?? undefined,
+  };
 }
 
-/** Unseen first; only if the pool runs dry does a repeat appear. */
-export async function selectClipsForUser(
+/** Idempotent, so a retried send never corrupts the ledger. */
+export async function markSegmentSeen(
   userId: number,
-  wordId: number,
-  limit: number,
-  database: Database = db(),
-): Promise<{ clips: ServableClip[]; exhausted: boolean }> {
-  const unseen = await selectUnseenClips(userId, wordId, limit, database);
-  if (unseen.length >= limit) return { clips: unseen, exhausted: false };
-
-  const fallback = await selectSeenFallback(
-    userId,
-    wordId,
-    limit - unseen.length,
-    unseen.map((c) => c.clipId),
-    database,
-  );
-  return { clips: [...unseen, ...fallback], exhausted: true };
-}
-
-/**
- * Record clips as seen. Idempotent — re-marking is a no-op rather than an error,
- * so a retried send never corrupts the ledger.
- */
-export async function markClipsSeen(
-  userId: number,
-  clipIds: readonly number[],
-  database: Database = db(),
-): Promise<void> {
-  if (clipIds.length === 0) return;
-  await database
-    .insert(userClipSeen)
-    .values(clipIds.map((clipId) => ({ userId, clipId })))
-    .onConflictDoNothing();
-}
-
-/** Unrendered, servable clips — shared by both backlog queries below. */
-const renderable = and(
-  isNull(clip.telegramFileId),
-  eq(video.status, 'live'),
-  eq(clip.disabled, false),
-);
-
-const renderJobColumns = {
-  clipId: clip.id,
-  ytVideoId: video.ytVideoId,
-  startMs: clip.startMs,
-  endMs: clip.endMs,
-};
-
-/**
- * Clips that exist but have never been rendered — the render queue's backlog.
- *
- * Ordered by id so a truncated sweep resumes where the last one stopped. Without
- * it the limit fell on whatever order the heap happened to return, which made
- * two identical sweeps enqueue different work.
- */
-export async function findClipsToRender(
-  limit: number,
-  database: Database = db(),
-): Promise<ClipRenderJob[]> {
-  const rows = await database
-    .select(renderJobColumns)
-    .from(clip)
-    .innerJoin(segment, eq(segment.id, clip.segmentId))
-    .innerJoin(video, eq(video.id, segment.videoId))
-    .where(renderable)
-    .orderBy(clip.id)
-    .limit(limit);
-  return rows;
-}
-
-/**
- * The same backlog, restricted to one word.
- *
- * This is what a live request needs. `findClipsToRender` answers "what should
- * the sweep work on next", which is a different question: it returns any
- * unrendered clips, so using it to serve a tap on "Watch clips" queued a handful
- * of unrelated words and left the requested one exactly as unrendered as before.
- */
-export async function findClipsToRenderForWord(
-  wordId: number,
-  limit: number,
-  database: Database = db(),
-): Promise<ClipRenderJob[]> {
-  const rows = await database
-    .select(renderJobColumns)
-    .from(clip)
-    .innerJoin(segment, eq(segment.id, clip.segmentId))
-    .innerJoin(video, eq(video.id, segment.videoId))
-    .where(and(renderable, eq(clip.wordId, wordId)))
-    .orderBy(clip.id)
-    .limit(limit);
-  return rows;
-}
-
-/**
- * Persist the reusable Telegram file_id.
- *
- * This is the economic core of the whole pipeline: minted once by an expensive
- * yt-dlp render plus an upload, then reused forever at zero marginal cost. It is
- * never expired — v1's 60-day TTL threw these away and paid to rebuild them.
- */
-export async function saveClipFileId(
-  clipId: number,
-  telegramFileId: string,
+  segmentId: number,
   database: Database = db(),
 ): Promise<void> {
   await database
-    .update(clip)
-    .set({ telegramFileId, renderedAt: new Date() })
-    .where(eq(clip.id, clipId));
+    .insert(userSegmentSeen)
+    .values({ userId, segmentId })
+    .onConflictDoUpdate({
+      target: [userSegmentSeen.userId, userSegmentSeen.segmentId],
+      set: { seenAt: new Date() },
+    });
 }
 
-/** A source video died: stop serving its clips, but keep any minted file_ids — they still play. */
-export async function markVideoDead(
-  ytVideoId: string,
+/** Votes needed before a clip can be switched off, and the dislike share that does it. */
+const VOTE_FLOOR = 5;
+const DISLIKE_SHARE = 2 / 3;
+
+/**
+ * Record one learner's vote (re-voting replaces it) and apply the policy: with
+ * at least five votes, a clip two-thirds disliked is taken out of rotation.
+ */
+export async function voteSegment(
+  userId: number,
+  segmentId: number,
+  vote: 'like' | 'dislike',
   database: Database = db(),
-): Promise<void> {
-  await database.update(video).set({ status: 'dead' }).where(eq(video.ytVideoId, ytVideoId));
+): Promise<{ likes: number; dislikes: number; disabled: boolean }> {
+  return database.transaction(async (tx) => {
+    await tx
+      .insert(segmentVote)
+      .values({ userId, segmentId, vote })
+      .onConflictDoUpdate({
+        target: [segmentVote.userId, segmentVote.segmentId],
+        set: { vote, createdAt: new Date() },
+      });
+
+    const [tally] = await tx
+      .select({
+        likes: sql<number>`count(*) filter (where ${segmentVote.vote} = 'like')::int`,
+        dislikes: sql<number>`count(*) filter (where ${segmentVote.vote} = 'dislike')::int`,
+      })
+      .from(segmentVote)
+      .where(eq(segmentVote.segmentId, segmentId));
+
+    const likes = tally?.likes ?? 0;
+    const dislikes = tally?.dislikes ?? 0;
+    const total = likes + dislikes;
+    const disabled = total >= VOTE_FLOOR && dislikes / total >= DISLIKE_SHARE;
+
+    await tx
+      .update(segmentMedia)
+      .set({ likes, dislikes, ...(disabled ? { disabled: true } : {}) })
+      .where(eq(segmentMedia.segmentId, segmentId));
+
+    return { likes, dislikes, disabled };
+  });
 }
 
-export async function disableClips(
-  clipIds: readonly number[],
-  database: Database = db(),
-): Promise<void> {
-  if (clipIds.length === 0) return;
-  await database.update(clip).set({ disabled: true }).where(inArray(clip.id, [...clipIds]));
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Coverage and render planning
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** How many enabled clips each word has: `word_id → count`. */
+const coveredCte = sql`
+  covered as (
+    select o.word_id, count(*)::int as n
+      from ${wordOccurrence} o
+      join ${segmentMedia} m on m.segment_id = o.segment_id and not m.disabled
+     group by o.word_id
+  )`;
 
 export interface WordClipCoverage {
   wordId: number;
   rendered: number;
-  total: number;
 }
 
-/** How many rendered clips each word has — drives breadth-then-depth pre-warming. */
-export async function clipCoverage(
+/** Rendered clips for just these words — the cheap check on a session's hot path. */
+export async function clipCountsFor(
+  wordIds: readonly number[],
   database: Database = db(),
-): Promise<WordClipCoverage[]> {
+): Promise<Map<number, number>> {
+  if (wordIds.length === 0) return new Map();
   const rows = await database.execute<Row<WordClipCoverage>>(sql`
-    select word_id as "wordId",
-           count(*) filter (where telegram_file_id is not null)::int as rendered,
-           count(*)::int as total
-      from ${clip}
-     where not disabled
-     group by word_id
+    select o.word_id as "wordId", count(*)::int as rendered
+      from ${wordOccurrence} o
+      join ${segmentMedia} m on m.segment_id = o.segment_id and not m.disabled
+     where o.word_id = any(${idArray(wordIds, 'int')})
+     group by o.word_id
+  `);
+  return new Map([...rows].map((r) => [r.wordId, r.rendered]));
+}
+
+/** Rendered clips per word — drives the pre-warm sweep and `pnpm prewarm --status`. */
+export async function wordCoverage(database: Database = db()): Promise<WordClipCoverage[]> {
+  const rows = await database.execute<Row<WordClipCoverage>>(sql`
+    with ${coveredCte}
+    select w.id as "wordId", coalesce(c.n, 0)::int as rendered
+      from word w
+      left join covered c on c.word_id = w.id
   `);
   return [...rows];
+}
+
+export async function renderedClipCount(database: Database = db()): Promise<number> {
+  const [row] = await database
+    .select({ n: sql<number>`count(*)::int` })
+    .from(segmentMedia)
+    .where(eq(segmentMedia.disabled, false));
+  return row?.n ?? 0;
+}
+
+/**
+ * Eligibility for cutting: a whole sentence whose text is not known to mismatch
+ * the audio. Unaligned (null) and unalignable (-1) sentences stay eligible and
+ * are cut from subtitle timing.
+ */
+const renderable = (minScore: number) => sql`
+  s.active and s.complete
+  and (s.align_score is null or s.align_score < 0 or s.align_score >= ${minScore})`;
+
+export interface VideoToRender {
+  videoId: number;
+  ytVideoId: string;
+  /** Under-covered words this video's sentences would help. */
+  gain: number;
+}
+
+/**
+ * Which source videos to download next.
+ *
+ * One download yields many clips, so the choice is by marginal gain: the
+ * number of words still below `target` that the video can help. Greedy, but it
+ * is what makes breadth fill fastest per YouTube request.
+ */
+export async function videosToRender(
+  target: number,
+  limit: number,
+  minScore: number,
+  database: Database = db(),
+): Promise<VideoToRender[]> {
+  const rows = await database.execute<Row<VideoToRender>>(sql`
+    with ${coveredCte},
+    need as (
+      select w.id as word_id from word w
+        left join covered c on c.word_id = w.id
+       where coalesce(c.n, 0) < ${target}
+    )
+    select v.id as "videoId", v.yt_video_id as "ytVideoId", count(distinct o.word_id)::int as gain
+      from need n
+      join ${wordOccurrence} o on o.word_id = n.word_id
+      join ${segment} s on s.id = o.segment_id
+      join ${video} v on v.id = s.video_id
+     where ${renderable(minScore)}
+       and v.status = 'live'
+       and v.media_status = 'none'
+       and v.indexed_at is not null
+     group by v.id
+     order by gain desc, v.id
+     limit ${limit}
+  `);
+  return [...rows];
+}
+
+/** Unrendered videos holding a good sentence for this word — a learner is waiting on it. */
+export async function videosForWord(
+  wordId: number,
+  limit: number,
+  minScore: number,
+  database: Database = db(),
+): Promise<Omit<VideoToRender, 'gain'>[]> {
+  const rows = await database.execute<Row<Omit<VideoToRender, 'gain'>>>(sql`
+    select v.id as "videoId", v.yt_video_id as "ytVideoId"
+      from ${wordOccurrence} o
+      join ${segment} s on s.id = o.segment_id
+      join ${video} v on v.id = s.video_id
+     where o.word_id = ${wordId}
+       and ${renderable(minScore)}
+       and v.status = 'live'
+       and v.media_status = 'none'
+     group by v.id
+     order by max(o.quality_score) desc, v.id
+     limit ${limit}
+  `);
+  return [...rows];
+}
+
+export interface VideoSegment {
+  id: number;
+  startMs: number;
+  endMs: number;
+  text: string;
+  complete: boolean;
+  alignedStartMs: number | null;
+  alignedEndMs: number | null;
+  alignScore: number | null;
+}
+
+/** Every segment of a video in time order — neighbours matter to where a cut may reach. */
+export async function videoSegments(
+  videoId: number,
+  database: Database = db(),
+): Promise<VideoSegment[]> {
+  return database
+    .select({
+      id: segment.id,
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      text: segment.text,
+      complete: segment.complete,
+      alignedStartMs: segment.alignedStartMs,
+      alignedEndMs: segment.alignedEndMs,
+      alignScore: segment.alignScore,
+    })
+    .from(segment)
+    .where(and(eq(segment.videoId, videoId), eq(segment.active, true)))
+    .orderBy(asc(segment.startMs));
+}
+
+/**
+ * The sentences of one video worth cutting, best first: those holding a word a
+ * learner is waiting for, then those helping the most under-covered words.
+ * Sentences already cut, or whose alignment says the text is not what is
+ * spoken, are left out.
+ */
+export async function renderPlan(
+  videoId: number,
+  focusWordIds: readonly number[],
+  target: number,
+  maxClips: number,
+  minScore: number,
+  database: Database = db(),
+): Promise<number[]> {
+  const focus = idArray(focusWordIds, 'int');
+  const rows = await database.execute<Row<{ id: number }>>(sql`
+    with ${coveredCte}
+    select s.id
+      from ${segment} s
+      join ${wordOccurrence} o on o.segment_id = s.id
+      left join covered c on c.word_id = o.word_id
+     where s.video_id = ${videoId}
+       and ${renderable(minScore)}
+       and not exists (select 1 from ${segmentMedia} m where m.segment_id = s.id)
+     group by s.id
+    having bool_or(o.word_id = any(${focus}))
+        or count(*) filter (where coalesce(c.n, 0) < ${target}) > 0
+     order by bool_or(o.word_id = any(${focus})) desc,
+              count(*) filter (where coalesce(c.n, 0) < ${target}) desc,
+              max(o.quality_score) desc,
+              min(s.start_ms)
+     limit ${maxClips}
+  `);
+  return [...rows].map((r) => Number(r.id));
+}
+
+export interface AlignmentUpdate {
+  segmentId: number;
+  alignedStartMs: number;
+  alignedEndMs: number;
+  alignScore: number;
+  wordTimings: WordTiming[];
+}
+
+export async function saveAlignments(
+  updates: readonly AlignmentUpdate[],
+  database: Database = db(),
+): Promise<void> {
+  for (const u of updates) {
+    await database
+      .update(segment)
+      .set({
+        alignedStartMs: u.alignedStartMs,
+        alignedEndMs: u.alignedEndMs,
+        alignScore: u.alignScore,
+        wordTimings: u.wordTimings,
+      })
+      .where(eq(segment.id, u.segmentId));
+  }
+}
+
+/** Sentences the aligner could not place: cut from subtitle timing, never re-sent. */
+export async function markUnalignable(
+  segmentIds: readonly number[],
+  database: Database = db(),
+): Promise<void> {
+  if (segmentIds.length === 0) return;
+  await database.execute(sql`
+    update ${segment} set align_score = -1
+     where id = any(${idArray(segmentIds, 'bigint')}) and align_score is null
+  `);
+}
+
+export interface NewSegmentMedia {
+  segmentId: number;
+  telegramFileId: string;
+  startMs: number;
+  endMs: number;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  aligned: boolean;
+}
+
+/**
+ * Persist the reusable Telegram file_id — minted once, reused forever at zero
+ * cost. Never expired: v1's 60-day TTL threw these away and paid to rebuild them.
+ */
+export async function saveSegmentMedia(
+  media: NewSegmentMedia,
+  database: Database = db(),
+): Promise<void> {
+  await database
+    .insert(segmentMedia)
+    .values(media)
+    .onConflictDoUpdate({
+      target: segmentMedia.segmentId,
+      set: {
+        telegramFileId: media.telegramFileId,
+        startMs: media.startMs,
+        endMs: media.endMs,
+        width: media.width,
+        height: media.height,
+        sizeBytes: media.sizeBytes,
+        aligned: media.aligned,
+        renderedAt: new Date(),
+      },
+    });
+}
+
+export async function setVideoMediaStatus(
+  videoId: number,
+  status: 'none' | 'rendered' | 'failed',
+  database: Database = db(),
+): Promise<void> {
+  await database
+    .update(video)
+    .set({ mediaStatus: status, mediaRenderedAt: status === 'none' ? null : new Date() })
+    .where(eq(video.id, videoId));
 }

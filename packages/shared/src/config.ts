@@ -83,12 +83,27 @@ const envSchema = z
     // Media tooling
     YTDLP_BIN: z.string().min(1).default('yt-dlp'),
     FFMPEG_BIN: z.string().min(1).default('ffmpeg'),
+    FFPROBE_BIN: z.string().min(1).default('ffprobe'),
     YOUTUBE_COOKIES_FILE: absolutePath.optional(),
     YTDLP_EXTRACTOR_ARGS: z.string().min(1).optional(),
     YTDLP_PROXY: z.string().min(1).optional(),
+    /**
+     * JavaScript runtime yt-dlp uses to solve YouTube's player challenges. Only
+     * Deno is enabled by default and the images ship Node, so without this the
+     * challenges go unsolved and formats go missing.
+     */
+    YTDLP_JS_RUNTIME: z.string().min(1).default('node'),
     CLIP_TMP_DIR: absolutePath.default('/tmp/ngsl-clips'),
-    CLIP_LEAD_SEC: int(0, 15).default(3),
-    CLIP_MAX_SEC: int(4, 60).default(14),
+    /** Silence kept before the first word and after the last one. */
+    CLIP_PAD_BEFORE_MS: int(0, 2_000).default(250),
+    CLIP_PAD_AFTER_MS: int(0, 2_000).default(400),
+    /** A sentence longer than this is skipped rather than cut short. */
+    CLIP_MAX_SEC: int(4, 60).default(20),
+    CLIP_MAX_HEIGHT: int(144, 1080).default(480),
+    /** Forced-alignment sidecar. Unset → cuts fall back to subtitle timing snapped to silence. */
+    ALIGNER_URL: z.string().url().optional(),
+    /** Alignments scoring below this are treated as a transcript that does not match the audio. */
+    ALIGN_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.35),
 
     // Clip vault — a private forum topic used purely to mint reusable file_ids.
     CLIP_VAULT_GROUP_ID: telegramChatId.optional(),
@@ -107,7 +122,14 @@ const envSchema = z
     CLIP_RENDER_CONCURRENCY: int(1, 4).default(1),
     PREWARM_BREADTH_TARGET: int(1, 100).default(10),
     PREWARM_DEPTH_TARGET: int(1, 500).default(30),
-    PREWARM_RENDER_BUDGET: int(1, 10_000).default(120),
+    /** Source videos downloaded per hour — the whole exposure to YouTube's bot wall. */
+    RENDER_VIDEOS_PER_HOUR: int(1, 120).default(12),
+    /** Clips cut from one download. The download is the expensive part, so use it well. */
+    RENDER_MAX_CLIPS_PER_VIDEO: int(1, 500).default(60),
+    /** How long every YouTube-facing job stops after the bot wall appears. */
+    BOT_WALL_PAUSE_MIN: int(5, 1_440).default(90),
+    /** Re-read a channel's feed after this many days; until then ingest works from the cache. */
+    ENUMERATE_TTL_DAYS: int(1, 365).default(30),
 
     // Feature flags
     ENABLE_PREWARM: bool.default('true'),
@@ -137,9 +159,6 @@ const envSchema = z
     ];
     if (!e.MONITOR_GROUP_ID && threads.some(Boolean)) {
       fail('MONITOR_GROUP_ID', 'required when any MONITOR_THREAD_* is set');
-    }
-    if (e.CLIP_MAX_SEC <= e.CLIP_LEAD_SEC) {
-      fail('CLIP_MAX_SEC', 'must be greater than CLIP_LEAD_SEC');
     }
   });
 
@@ -188,12 +207,18 @@ function shape(e: RawEnv) {
     media: {
       ytdlpBin: e.YTDLP_BIN,
       ffmpegBin: e.FFMPEG_BIN,
+      ffprobeBin: e.FFPROBE_BIN,
       cookiesFile: e.YOUTUBE_COOKIES_FILE,
       extractorArgs: e.YTDLP_EXTRACTOR_ARGS,
       proxy: e.YTDLP_PROXY,
+      jsRuntime: e.YTDLP_JS_RUNTIME,
       tmpDir: e.CLIP_TMP_DIR,
-      leadSec: e.CLIP_LEAD_SEC,
-      maxSec: e.CLIP_MAX_SEC,
+      padBeforeMs: e.CLIP_PAD_BEFORE_MS,
+      padAfterMs: e.CLIP_PAD_AFTER_MS,
+      maxMs: e.CLIP_MAX_SEC * 1000,
+      maxHeight: e.CLIP_MAX_HEIGHT,
+      alignerUrl: e.ALIGNER_URL,
+      alignMinScore: e.ALIGN_MIN_SCORE,
       vault,
     },
     monitor: e.MONITOR_GROUP_ID
@@ -213,7 +238,10 @@ function shape(e: RawEnv) {
       renderConcurrency: e.CLIP_RENDER_CONCURRENCY,
       breadthTarget: e.PREWARM_BREADTH_TARGET,
       depthTarget: e.PREWARM_DEPTH_TARGET,
-      renderBudget: e.PREWARM_RENDER_BUDGET,
+      videosPerHour: e.RENDER_VIDEOS_PER_HOUR,
+      maxClipsPerVideo: e.RENDER_MAX_CLIPS_PER_VIDEO,
+      botWallPauseMs: e.BOT_WALL_PAUSE_MIN * 60_000,
+      enumerateTtlDays: e.ENUMERATE_TTL_DAYS,
       prewarmEnabled: e.ENABLE_PREWARM,
       remindersEnabled: e.ENABLE_REMINDERS,
     },

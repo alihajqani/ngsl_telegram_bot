@@ -1,4 +1,7 @@
 import { execFile } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { chmod, copyFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { config, createLogger } from '@ngsl/shared';
 
@@ -46,6 +49,7 @@ const BOT_WALL_PATTERNS = [
   /confirm you'?re not a bot/i,
   /http error 429/i,
   /too many requests/i,
+  /session has been rate-limited/i,
 ];
 
 export function classifyError(stderr: string): YtdlpErrorKind {
@@ -55,29 +59,66 @@ export function classifyError(stderr: string): YtdlpErrorKind {
   return 'transient';
 }
 
+export interface BaseArgsOptions {
+  jsRuntime: string;
+  cookiesPath?: string;
+  extractorArgs?: string;
+  proxy?: string;
+}
+
 /**
  * Flags shared by every invocation.
  *
- * `--cookies` must receive an ABSOLUTE path: yt-dlp runs with an unpredictable
- * CWD, and a relative path fails intermittently in a way that looks like a
- * network fault. The config schema enforces absoluteness.
+ * `--js-runtimes` is not optional: current yt-dlp solves YouTube's player
+ * challenges in JavaScript and enables only Deno by default. The images ship
+ * Node, so without the flag formats silently go missing.
  */
-export function baseArgs(): string[] {
-  const { cookiesFile, extractorArgs, proxy } = config().media;
+export function buildBaseArgs(options: BaseArgsOptions): string[] {
   const args = [
     '--no-warnings',
     '--no-progress',
     '--ignore-config',
+    '--js-runtimes', options.jsRuntime,
     '--socket-timeout', '30',
     '--retries', '3',
     '--retry-sleep', 'exp=2:60',
     // Pace requests; firing them back-to-back is what trips rate limiting.
     '--sleep-requests', '1',
   ];
-  if (cookiesFile) args.push('--cookies', cookiesFile);
-  if (extractorArgs) args.push('--extractor-args', extractorArgs);
-  if (proxy) args.push('--proxy', proxy);
+  if (options.cookiesPath) args.push('--cookies', options.cookiesPath);
+  if (options.extractorArgs) args.push('--extractor-args', options.extractorArgs);
+  if (options.proxy) args.push('--proxy', options.proxy);
   return args;
+}
+
+let cookieCopy: Promise<string | undefined> | undefined;
+
+/**
+ * A private, writable copy of the cookie jar.
+ *
+ * yt-dlp writes the jar back when it exits, and the real file is mounted
+ * read-only, so pointing yt-dlp at it crashes every call with EROFS. The copy
+ * also keeps the rotated cookies YouTube hands out during this process's life.
+ * The path must be absolute: yt-dlp runs with an unpredictable CWD. The copy is
+ * a live session, so it is removed when the process exits.
+ */
+function writableCookies(): Promise<string | undefined> {
+  cookieCopy ??= (async () => {
+    const { cookiesFile, tmpDir } = config().media;
+    if (!cookiesFile) return undefined;
+    await mkdir(tmpDir, { recursive: true });
+    const copy = join(tmpDir, `yt-cookies-${process.pid}.txt`);
+    await copyFile(cookiesFile, copy);
+    await chmod(copy, 0o600);
+    process.once('exit', () => rmSync(copy, { force: true }));
+    return copy;
+  })();
+  return cookieCopy;
+}
+
+export async function baseArgs(): Promise<string[]> {
+  const { jsRuntime, extractorArgs, proxy } = config().media;
+  return buildBaseArgs({ jsRuntime, extractorArgs, proxy, cookiesPath: await writableCookies() });
 }
 
 export interface RunOptions {
@@ -88,7 +129,7 @@ export interface RunOptions {
 
 export async function runYtdlp(args: string[], options: RunOptions = {}): Promise<string> {
   const { ytdlpBin } = config().media;
-  const full = [...baseArgs(), ...args];
+  const full = [...(await baseArgs()), ...args];
 
   try {
     const { stdout } = await exec(ytdlpBin, full, {

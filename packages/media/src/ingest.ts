@@ -1,8 +1,17 @@
-import { createLogger } from '@ngsl/shared';
-import { channel, db, segment, video, word, wordOccurrence, type Database } from '@ngsl/db';
-import { eq, sql } from 'drizzle-orm';
+import { config as appConfig, createLogger } from '@ngsl/shared';
+import {
+  channel,
+  db,
+  segment,
+  video,
+  videoSubtitle,
+  word,
+  wordOccurrence,
+  type Database,
+} from '@ngsl/db';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { ChannelConfig } from './channels.js';
-import { enumerateChannel } from './enumerate.js';
+import { enumerateChannel, type EnumeratedVideo } from './enumerate.js';
 import { Lexicon } from './lexicon.js';
 import { scoreSegment } from './quality.js';
 import { segmentCues, type TextSegment } from './segment.js';
@@ -15,16 +24,18 @@ const log = createLogger('media.ingest');
 const SEGMENT_BATCH = 500;
 
 export interface IngestOptions {
-  /** How many videos to pull from the channel feed. */
+  /** How many not-yet-probed videos to take from the channel. */
   limit: number;
   /** Pause between videos — the main lever against YouTube's bot wall. */
   delayMs: number;
+  /** Re-read the channel feed even if the cached copy is fresh. */
+  refresh?: boolean;
 }
 
 export interface IngestStats {
   channel: string;
+  /** Videos read from the feed this run; 0 when the cached feed was used. */
   enumerated: number;
-  alreadyIndexed: number;
   manual: number;
   noManualSubs: number;
   dead: number;
@@ -42,11 +53,11 @@ export async function loadLexicon(database: Database = db()): Promise<Lexicon> {
   return new Lexicon(rows);
 }
 
-/** Upsert the channel row and return its id. */
+/** Upsert the channel row; returns its id and when its feed was last read. */
 export async function ensureChannel(
   config: ChannelConfig,
   database: Database = db(),
-): Promise<number> {
+): Promise<{ id: number; lastEnumeratedAt: Date | null }> {
   const [row] = await database
     .insert(channel)
     .values({
@@ -60,16 +71,51 @@ export async function ensureChannel(
       target: channel.ytChannelId,
       set: { name: sql`excluded.name`, tier: sql`excluded.tier`, enabled: sql`excluded.enabled` },
     })
-    .returning({ id: channel.id });
-  return row!.id;
+    .returning({ id: channel.id, lastEnumeratedAt: channel.lastEnumeratedAt });
+  return row!;
+}
+
+/** Cache the feed. Positions are refreshed on every read, since new uploads shift them. */
+async function storeFeed(
+  channelId: number,
+  videos: readonly EnumeratedVideo[],
+  database: Database,
+): Promise<void> {
+  for (let i = 0; i < videos.length; i += SEGMENT_BATCH) {
+    await database
+      .insert(video)
+      .values(
+        videos.slice(i, i + SEGMENT_BATCH).map((v) => ({
+          ytVideoId: v.ytVideoId,
+          channelId,
+          title: v.title,
+          durationS: v.durationS,
+          feedIndex: v.feedIndex,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: video.ytVideoId,
+        set: {
+          title: sql`excluded.title`,
+          durationS: sql`excluded.duration_s`,
+          feedIndex: sql`excluded.feed_index`,
+        },
+      });
+  }
+  await database
+    .update(channel)
+    .set({ lastEnumeratedAt: new Date() })
+    .where(eq(channel.id, channelId));
 }
 
 /**
- * Ingest one channel end to end: enumerate → manual-subtitle filter → sentence
+ * Ingest one channel: cached feed → manual-subtitle filter → sentence
  * segmentation → NGSL indexing.
  *
- * Videos are processed one at a time and each is committed independently, so a
- * run that trips the bot wall halfway keeps everything it already indexed.
+ * The feed is read from YouTube only when the cache is missing or older than
+ * `ENUMERATE_TTL_DAYS`; otherwise the next unprobed videos come straight from
+ * the database, in the channel's crawl order. Each video is committed on its
+ * own, so a run that trips the bot wall keeps everything it already indexed.
  */
 export async function ingestChannel(
   config: ChannelConfig,
@@ -80,7 +126,6 @@ export async function ingestChannel(
   const stats: IngestStats = {
     channel: config.slug,
     enumerated: 0,
-    alreadyIndexed: 0,
     manual: 0,
     noManualSubs: 0,
     dead: 0,
@@ -89,39 +134,31 @@ export async function ingestChannel(
     occurrences: 0,
   };
 
-  const channelId = await ensureChannel(config, database);
-  const videos = await enumerateChannel(config, options.limit);
-  stats.enumerated = videos.length;
+  const row = await ensureChannel(config, database);
+  const ttlMs = appConfig().jobs.enumerateTtlDays * 86_400_000;
+  const stale =
+    options.refresh === true ||
+    row.lastEnumeratedAt === null ||
+    Date.now() - row.lastEnumeratedAt.getTime() > ttlMs;
 
-  for (const [index, candidate] of videos.entries()) {
-    // Register the video first so its verdict is remembered even if we crash.
-    const [row] = await database
-      .insert(video)
-      .values({
-        ytVideoId: candidate.ytVideoId,
-        channelId,
-        title: candidate.title,
-        durationS: candidate.durationS,
-        subStatus: 'pending',
-      })
-      .onConflictDoUpdate({
-        target: video.ytVideoId,
-        set: { title: sql`excluded.title`, durationS: sql`excluded.duration_s` },
-      })
-      .returning({ id: video.id, subStatus: video.subStatus, indexedAt: video.indexedAt });
+  if (stale) {
+    const videos = await enumerateChannel(config);
+    await storeFeed(row.id, videos, database);
+    stats.enumerated = videos.length;
+  }
 
-    const videoRow = row!;
+  // Oldest-first channels take the highest feed positions first.
+  const order = config.order === 'oldest' ? desc(video.feedIndex) : asc(video.feedIndex);
+  const pending = await database
+    .select({ id: video.id, ytVideoId: video.ytVideoId })
+    .from(video)
+    .where(
+      and(eq(video.channelId, row.id), eq(video.subStatus, 'pending'), eq(video.status, 'live')),
+    )
+    .orderBy(order)
+    .limit(options.limit);
 
-    // Already decided: either indexed, or known to have no human subtitles.
-    if (videoRow.indexedAt !== null) {
-      stats.alreadyIndexed++;
-      continue;
-    }
-    if (videoRow.subStatus === 'none') {
-      stats.noManualSubs++;
-      continue;
-    }
-
+  for (const [index, candidate] of pending.entries()) {
     if (index > 0) await sleep(options.delayMs);
 
     try {
@@ -131,12 +168,21 @@ export async function ingestChannel(
         await database
           .update(video)
           .set({ subStatus: 'none', healthCheckedAt: new Date() })
-          .where(eq(video.id, videoRow.id));
+          .where(eq(video.id, candidate.id));
         stats.noManualSubs++;
         continue;
       }
 
-      const indexed = await indexVideo(videoRow.id, result.vtt!, lexicon, database);
+      // Kept raw so re-segmenting or re-aligning never asks YouTube again.
+      await database
+        .insert(videoSubtitle)
+        .values({ videoId: candidate.id, lang: result.lang ?? null, vtt: result.vtt! })
+        .onConflictDoUpdate({
+          target: videoSubtitle.videoId,
+          set: { lang: sql`excluded.lang`, vtt: sql`excluded.vtt`, fetchedAt: new Date() },
+        });
+
+      const indexed = await indexVideo(candidate.id, result.vtt!, lexicon, database);
       stats.manual++;
       stats.segments += indexed.segments;
       stats.occurrences += indexed.occurrences;
@@ -149,7 +195,7 @@ export async function ingestChannel(
       });
     } catch (error) {
       if (error instanceof YtdlpError && error.kind === 'dead') {
-        await database.update(video).set({ status: 'dead' }).where(eq(video.id, videoRow.id));
+        await database.update(video).set({ status: 'dead' }).where(eq(video.id, candidate.id));
         stats.dead++;
         continue;
       }
@@ -217,12 +263,17 @@ export async function indexVideo(
             endMs: s.endMs,
             text: s.text,
             wordCount: s.wordCount,
+            complete: s.complete,
           })),
         )
         // Re-ingesting a video must not duplicate its segments.
         .onConflictDoUpdate({
           target: [segment.videoId, segment.startMs],
-          set: { text: sql`excluded.text`, endMs: sql`excluded.end_ms` },
+          set: {
+            text: sql`excluded.text`,
+            endMs: sql`excluded.end_ms`,
+            complete: sql`excluded.complete`,
+          },
         })
         .returning({ id: segment.id, startMs: segment.startMs });
 
@@ -232,10 +283,11 @@ export async function indexVideo(
         const segmentId = idByStart.get(s.startMs);
         if (segmentId === undefined) return [];
         const score = scoreSegment(s);
-        return [...lexicon.match(s.text)].map((wordId) => ({
+        return [...lexicon.matchForms(s.text)].map(([wordId, forms]) => ({
           wordId,
           segmentId,
           qualityScore: score,
+          forms,
         }));
       });
 

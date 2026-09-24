@@ -3,20 +3,24 @@ export {
   PRIORITY,
   DEFAULT_JOB_OPTIONS,
   redisConnection,
+  redisClient,
   closeConnection,
 } from './connection.js';
 
 export {
-  clipRenderQueue,
-  enqueueClipRender,
-  clipJobId,
-  closeClipRenderQueue,
+  videoRenderQueue,
+  enqueueVideoRender,
+  videoJobId,
+  mergeFocus,
+  closeVideoRenderQueue,
   prewarmWords,
   runPrewarm,
-  type ClipRenderJobData,
+  type VideoRenderJobData,
   type PrewarmStage,
   type PrewarmResult,
-} from './clip-render.queue.js';
+} from './video-render.queue.js';
+
+export { tripBotWall, botWallRemainingMs } from './bot-wall.js';
 
 export {
   startNewWordSession,

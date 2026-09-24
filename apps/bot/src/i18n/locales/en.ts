@@ -32,6 +32,7 @@ export const en: Locale = {
       '📖 <b>New words</b> — a few fresh words a day, with examples and clips\n' +
       '🔄 <b>Review</b> — the Leitner system brings each word back at the right time\n' +
       '🎬 <b>Clips</b> — the word in real speech, never the same clip twice\n' +
+      '🔎 <b>Search</b> — type any English word or phrase to see it in clips\n' +
       '📊 <b>Progress</b> — see how far you have come\n\n' +
       'Pick something from the menu below 👇',
   },
@@ -46,6 +47,7 @@ export const en: Locale = {
     league: '🏆 League',
     lazy: '😴 Lazy Board',
     admin: '🛠 Admin',
+    search: '🔎 Search',
     prompt: 'Choose an option:',
   },
 
@@ -101,12 +103,28 @@ export const en: Locale = {
 
   clips: {
     header: '🎬 <b>“{lemma}” in real speech</b>',
-    caption: '💬 {sentence}',
+    searchHeader: '🔎 <b>“{query}”</b>',
+    caption: '{header}\n\n💬 {sentence}\n\n🎥 {channel} · {position}/{total}',
     preparing:
       '⏳ Clips for this word are still being prepared.\n' +
       'Please try again in a few minutes.',
-    none: 'No clips found for this word.',
-    exhausted: 'ℹ️ You have seen every fresh clip — these are repeats.',
+    prev: '⏮ Prev',
+    next: 'Next ⏭',
+    like: '👍',
+    dislike: '👎',
+    youtube: '▶️ YouTube',
+    voted: 'Thanks for the feedback!',
+    removed: 'This clip is out of rotation. Thanks!',
+    expired: 'These results are out of date. Please search again.',
+    unavailable: 'This clip is no longer available.',
+  },
+
+  search: {
+    prompt:
+      '🔎 Send an English word or phrase to see it in real speech.\n' +
+      'For example: <code>look forward to</code>',
+    none: 'No clips for “{query}” yet.',
+    invalid: 'Send English letters only, up to 6 words.',
   },
 
   writing: {
