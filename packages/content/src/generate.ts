@@ -26,14 +26,23 @@ const log = createLogger('content.generate');
 
 const BATCH_SIZE = 8;
 
-const exampleBatchSchema = z.object({
-  words: z.array(
-    z.object({
-      word: z.string().min(1),
-      examples: z.array(z.string().min(1)).min(1).max(4),
-    }),
-  ),
-});
+/**
+ * The model is asked for `{"words": [...]}` but now and then answers with the
+ * bare array. Same data, so it is accepted rather than costing the batch.
+ */
+const wrapBareArray = (value: unknown): unknown => (Array.isArray(value) ? { words: value } : value);
+
+export const exampleBatchSchema = z.preprocess(
+  wrapBareArray,
+  z.object({
+    words: z.array(
+      z.object({
+        word: z.string().min(1),
+        examples: z.array(z.string().min(1)).min(1).max(4),
+      }),
+    ),
+  }),
+);
 
 type CollocationKind = 'collocation' | 'idiom';
 
@@ -49,24 +58,27 @@ type CollocationKind = 'collocation' | 'idiom';
 const asCollocationKind = (value: unknown): CollocationKind | undefined =>
   value === 'collocation' || value === 'idiom' ? value : undefined;
 
-const collocationBatchSchema = z.object({
-  words: z.array(
-    z.object({
-      word: z.string().min(1),
-      phrases: z
-        .array(
-          z.object({
-            phrase: z.string().min(1).max(160),
-            meaning: z.string().min(1).max(400),
-            // Coerced, not validated — see asCollocationKind.
-            kind: z.unknown().transform(asCollocationKind),
-          }),
-        )
-        .min(1)
-        .max(8),
-    }),
-  ),
-});
+export const collocationBatchSchema = z.preprocess(
+  wrapBareArray,
+  z.object({
+    words: z.array(
+      z.object({
+        word: z.string().min(1),
+        phrases: z
+          .array(
+            z.object({
+              phrase: z.string().min(1).max(160),
+              meaning: z.string().min(1).max(400),
+              // Coerced, not validated — see asCollocationKind.
+              kind: z.unknown().transform(asCollocationKind),
+            }),
+          )
+          .min(1)
+          .max(8),
+      }),
+    ),
+  }),
+);
 
 export interface GenerateOptions {
   /** Cap the run — useful for a smoke test before committing the GPU overnight. */

@@ -11,6 +11,7 @@ import {
   type VideoSegment,
 } from '@ngsl/db';
 import {
+  alignmentTargets,
   alignSegments,
   analyzeAudio,
   cutClip,
@@ -21,6 +22,7 @@ import {
   probe,
   snapToSilence,
   YtdlpError,
+  type Alignment,
   type AudioAnalysis,
   type Span,
 } from '@ngsl/media';
@@ -99,8 +101,9 @@ export async function processVideoRender(
     const audio = await analyzeAudio(source, info.durationMs);
 
     let segments = await videoSegments(videoId);
-    if (isAlignerConfigured() && segments.some((s) => s.alignScore === null)) {
-      const changed = await alignVideo(source, dir, segments);
+    const targets = isAlignerConfigured() ? alignmentTargets(segments, plan) : [];
+    if (targets.length > 0) {
+      const changed = await alignVideo(source, dir, segments, targets);
       if (changed > 0) {
         segments = await videoSegments(videoId);
         // Alignment may have shown some planned sentences do not match the audio.
@@ -166,24 +169,32 @@ export async function processVideoRender(
 }
 
 /**
- * Align every not-yet-aligned sentence of the video. Returns how many segments
- * changed: aligned ones get word times, the ones the aligner could not place
- * are marked so they are never re-sent. An unreachable aligner changes nothing.
+ * Align the planned sentences and their neighbours. Returns how many segments
+ * changed: aligned ones get word times, the ones the aligner answered it could
+ * not place are marked so they are never re-sent. Sentences left unanswered
+ * (the aligner went away midway) stay unaligned and are tried next time.
  */
-async function alignVideo(source: string, dir: string, segments: readonly VideoSegment[]): Promise<number> {
+async function alignVideo(
+  source: string,
+  dir: string,
+  segments: readonly VideoSegment[],
+  targetIds: readonly number[],
+): Promise<number> {
   const wav = await extractSpeechWav(source, join(dir, 'speech.wav'));
-  const pending = segments.filter((s) => s.alignScore === null);
-  const aligned = await alignSegments(
+  const wanted = new Set(targetIds);
+  const pending = segments.filter((s) => wanted.has(s.id));
+  const answered = await alignSegments(
     wav,
     pending.map((s) => ({ id: s.id, startMs: s.startMs, endMs: s.endMs, text: s.text })),
   );
   await rm(wav, { force: true });
-  if (!aligned) return 0;
+  if (!answered) return 0;
 
-  const unalignable = pending.filter((s) => !aligned.has(s.id)).map((s) => s.id);
+  const aligned = [...answered.values()].filter((a): a is Alignment => a !== null);
+  const unalignable = [...answered].filter(([, a]) => a === null).map(([id]) => id);
   await markUnalignable(unalignable);
   await saveAlignments(
-    [...aligned.values()].map((a) => ({
+    aligned.map((a) => ({
       segmentId: a.id,
       alignedStartMs: a.startMs,
       alignedEndMs: a.endMs,
@@ -193,10 +204,10 @@ async function alignVideo(source: string, dir: string, segments: readonly VideoS
   );
   log.info('Aligned sentences', {
     requested: pending.length,
-    aligned: aligned.size,
+    aligned: aligned.length,
     unalignable: unalignable.length,
   });
-  return pending.length;
+  return answered.size;
 }
 
 /**

@@ -84,6 +84,29 @@ export function geminiAnswerText(payload: GeminiPayload): string {
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
+/** Waits before each retry of a server error: Gemini's 500s are usually momentary. */
+const SERVER_RETRY_DELAYS_MS = [2_000, 6_000];
+
+/**
+ * Retry a request that failed on the server's side (5xx), a few times with a
+ * growing pause. Client errors and 429s are returned at once: a 429 is handled
+ * by rotating keys, and a 4xx will not change by asking again. In one full
+ * content run, nine of ten failed batches were a single Gemini 500.
+ */
+export async function withServerRetry<R extends { status: number }>(
+  request: () => Promise<R>,
+  delaysMs: readonly number[] = SERVER_RETRY_DELAYS_MS,
+): Promise<R> {
+  let response = await request();
+  for (const delay of delaysMs) {
+    if (response.status < 500) break;
+    log.debug('LLM server error, retrying', { status: response.status, delay });
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    response = await request();
+  }
+  return response;
+}
+
 async function callGemini(messages: ChatMessage[], options: CompletionOptions): Promise<string> {
   const { apiKeys, model } = config().llm.gemini;
   if (apiKeys.length === 0) throw new AllKeysExhaustedError('gemini');
@@ -106,10 +129,12 @@ async function callGemini(messages: ChatMessage[], options: CompletionOptions): 
   // Try every key once before giving up: a 429 on one key says nothing about the next.
   for (let attempt = 0; attempt < apiKeys.length; attempt++) {
     const key = apiKeys[(keyCursor + attempt) % apiKeys.length]!;
-    const response = await post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      body,
-      { 'x-goog-api-key': key },
+    const response = await withServerRetry(() =>
+      post(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        body,
+        { 'x-goog-api-key': key },
+      ),
     );
 
     if (isRateLimited(response.status)) {

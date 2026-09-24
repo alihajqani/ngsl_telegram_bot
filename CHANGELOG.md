@@ -9,6 +9,22 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-09-24
+
+### Fixed
+
+- **Alignment was lost on a small server.** The worker sent a whole talk to
+  the aligner in one request, and the aligner answers only when done. On one
+  CPU core that took longer than the five minutes Node's fetch waits for
+  response headers, so every alignment was dropped and every cut fell back to
+  subtitle timing. Sentences now go in batches of 25, and only the sentences
+  about to be cut plus their neighbours are aligned, not the whole talk. If a
+  later batch fails, the batches already answered are kept.
+- Gemini's momentary `500` errors are retried twice (after 2 s and 6 s); in one
+  full content run they caused nine of ten failed batches.
+- A content batch the model returns as a bare array instead of
+  `{"words": [...]}` is accepted instead of failing.
+
 ## [3.0.1] - 2026-09-24
 
 ### Fixed

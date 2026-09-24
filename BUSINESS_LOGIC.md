@@ -20,6 +20,11 @@
 Newest first. Record the commit whose behaviour the document now describes, not
 the commit that edited the document.
 
+### 2026-09-24 — describes `v3.0.2`
+
+- Alignment is sent in batches of 25 and only for planned sentences and their
+  neighbours (§8.4); Gemini 5xx retried, bare-array batches accepted (§9.2).
+
 ### 2026-09-24 — describes `v3.0.1`
 
 - Thinking-model reasoning is dropped from LLM replies; content batches that
@@ -450,10 +455,14 @@ One job per source video:
    the size of H.264; the download is the slow, YouTube-facing step.
 3. **Analyse the audio in one pass:** integrated loudness (EBU R128) and every
    pause (`silencedetect`, −35 dB, 150 ms).
-4. **Forced alignment** (optional sidecar, `ALIGNER_URL`). The sentence text is
-   aligned against its audio, with one second of context on each side, by a
-   wav2vec2 CTC model; the result is when every word is really spoken, and a
-   confidence score. Stored on the segment (`aligned_start_ms`,
+4. **Forced alignment** (optional sidecar, `ALIGNER_URL`). Only the planned
+   sentences and their immediate neighbours are aligned (`alignmentTargets`),
+   in requests of 25 sentences: the aligner answers when a request is done, and
+   Node's fetch gives up on a response whose headers take over five minutes,
+   which a whole talk did on one CPU core. If a later batch fails, the batches
+   already answered are kept. Each sentence text is aligned against its audio,
+   with one second of context on each side, by a wav2vec2 CTC model; the result
+   is when every word is really spoken, and a confidence score. Stored on the segment (`aligned_start_ms`,
    `aligned_end_ms`, `align_score`, `word_timings`), so a later render of the same
    video never re-aligns. A sentence whose first or last word cannot be aligned
    (a number, say) is left unaligned rather than guessed. A sentence scoring below
@@ -627,6 +636,8 @@ Operating rules:
   output budget defaults to 8,192 tokens so reasoning cannot crowd out a batch.
 - A batch that parses but matches none of the requested words is logged as a
   warning rather than counted as a quiet success.
+- Gemini `5xx` responses are retried twice (after 2 s and 6 s) before the batch
+  counts as failed; a bare JSON array is accepted in place of `{"words": [...]}`.
 
 Default model: `gemini-2.0-flash`; LLM timeout 60,000 ms.
 

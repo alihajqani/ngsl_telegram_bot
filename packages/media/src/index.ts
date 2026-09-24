@@ -38,7 +38,15 @@ export {
   type AudioAnalysis,
   type CutResult,
 } from './render.js';
-export { alignSegments, isAlignerConfigured, type Alignment, type AlignRequest } from './align.js';
+export {
+  alignSegments,
+  alignInChunks,
+  alignmentTargets,
+  isAlignerConfigured,
+  type Alignment,
+  type AlignRequest,
+  type AlignResponse,
+} from './align.js';
 export { scoreSegment } from './quality.js';
 export { enumerateChannel, type EnumeratedVideo } from './enumerate.js';
 export { fetchManualSubtitles, pickPreferredTrack, type SubtitleResult } from './subtitles.js';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { geminiAnswerText } from './provider.js';
+import { geminiAnswerText, withServerRetry } from './provider.js';
 
 describe('geminiAnswerText', () => {
   it('keeps only the answer, dropping the reasoning of a thinking model', () => {
@@ -28,5 +28,38 @@ describe('geminiAnswerText', () => {
 
   it('returns an empty string when there is no candidate', () => {
     expect(geminiAnswerText({})).toBe('');
+  });
+});
+
+describe('withServerRetry', () => {
+  const statuses = (...list: number[]) => {
+    const calls: number[] = [];
+    const fn = () => {
+      const status = list[calls.length] ?? 200;
+      calls.push(status);
+      return Promise.resolve({ status });
+    };
+    return { fn, calls };
+  };
+
+  it('retries a server error and returns the first good response', async () => {
+    const { fn, calls } = statuses(500, 503, 200);
+    const response = await withServerRetry(fn, [0, 0]);
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([500, 503, 200]);
+  });
+
+  it('gives up after the last delay and returns the error response', async () => {
+    const { fn, calls } = statuses(500, 500, 500, 200);
+    expect((await withServerRetry(fn, [0, 0])).status).toBe(500);
+    expect(calls).toHaveLength(3);
+  });
+
+  it('does not retry a client error or a rate limit', async () => {
+    for (const status of [400, 429]) {
+      const { fn, calls } = statuses(status);
+      expect((await withServerRetry(fn, [0, 0])).status).toBe(status);
+      expect(calls).toHaveLength(1);
+    }
   });
 });

@@ -29,50 +29,96 @@ export interface Alignment {
   words: WordTiming[];
 }
 
-interface AlignResponse {
+export interface AlignResponse {
   results: ({ id: number; ok: true; startMs: number; endMs: number; score: number; words: WordTiming[] } | { id: number; ok: false })[];
 }
+
+/**
+ * Sentences per request. The aligner answers only when a whole request is
+ * done, and Node's fetch drops a request whose response headers take over
+ * five minutes. On a one-core server a whole talk took longer than that, so
+ * every alignment was lost; 25 sentences finish in well under a minute.
+ */
+const CHUNK_SIZE = 25;
 
 export function isAlignerConfigured(): boolean {
   return config().media.alignerUrl !== undefined;
 }
 
 /**
- * Align every segment of one video. `audioPath` must be visible to the aligner
+ * Which sentences to align: the ones about to be cut and their immediate
+ * neighbours (whose word times keep a cut from reaching into them), skipping
+ * any already aligned. `segments` must be in time order.
+ */
+export function alignmentTargets(
+  segments: readonly { id: number; alignScore: number | null }[],
+  planIds: readonly number[],
+): number[] {
+  const planned = new Set(planIds);
+  const wanted = new Set<number>();
+  segments.forEach((segment, index) => {
+    if (!planned.has(segment.id)) return;
+    for (const neighbour of [segments[index - 1], segment, segments[index + 1]]) {
+      if (neighbour && neighbour.alignScore === null) wanted.add(neighbour.id);
+    }
+  });
+  return segments.filter((s) => wanted.has(s.id)).map((s) => s.id);
+}
+
+/**
+ * Align in batches. The map holds an alignment for each placed sentence and
+ * `null` for each the aligner answered it could not place; sentences never
+ * answered (a later batch failed) are absent, so they are not written off.
+ * Undefined when the aligner never answered at all.
+ */
+export async function alignInChunks(
+  segments: readonly AlignRequest[],
+  post: (chunk: readonly AlignRequest[]) => Promise<AlignResponse>,
+  chunkSize = CHUNK_SIZE,
+): Promise<Map<number, Alignment | null> | undefined> {
+  const aligned = new Map<number, Alignment | null>();
+  for (let i = 0; i < segments.length; i += chunkSize) {
+    let body: AlignResponse;
+    try {
+      body = await post(segments.slice(i, i + chunkSize));
+    } catch (error) {
+      log.warn('Aligner request failed; keeping what was aligned', {
+        answered: aligned.size,
+        of: segments.length,
+        error,
+      });
+      return aligned.size === 0 ? undefined : aligned;
+    }
+    for (const result of body.results) aligned.set(result.id, result.ok ? result : null);
+  }
+  return aligned;
+}
+
+/**
+ * Align sentences of one video. `audioPath` must be visible to the aligner
  * too: both containers mount the same clip scratch volume.
  *
- * Returns undefined when the aligner could not be asked at all (logged, not
- * thrown), so an outage degrades cuts to the fallback instead of stopping
- * renders, and the caller can tell "not aligned" from "could not be aligned".
+ * An unreachable aligner is logged, not thrown, so an outage degrades cuts to
+ * the fallback instead of stopping renders.
  */
 export async function alignSegments(
   audioPath: string,
   segments: readonly AlignRequest[],
-): Promise<Map<number, Alignment> | undefined> {
+): Promise<Map<number, Alignment | null> | undefined> {
   const url = config().media.alignerUrl;
-  const aligned = new Map<number, Alignment>();
   if (!url) return undefined;
-  if (segments.length === 0) return aligned;
+  if (segments.length === 0) return new Map();
 
-  try {
+  return alignInChunks(segments, async (chunk) => {
     const response = await fetch(`${url.replace(/\/$/, '')}/align`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ audio: audioPath, segments }),
-      // CPU alignment of a long talk takes minutes, not seconds.
-      signal: AbortSignal.timeout(20 * 60_000),
+      body: JSON.stringify({ audio: audioPath, segments: chunk }),
+      signal: AbortSignal.timeout(4 * 60_000),
     });
     if (!response.ok) {
-      log.warn('Aligner returned an error', { status: response.status, body: await response.text() });
-      return undefined;
+      throw new Error(`Aligner responded ${response.status}: ${await response.text()}`);
     }
-    const body = (await response.json()) as AlignResponse;
-    for (const result of body.results) {
-      if (result.ok) aligned.set(result.id, result);
-    }
-  } catch (error) {
-    log.warn('Aligner unreachable; falling back to subtitle timing', { error });
-    return undefined;
-  }
-  return aligned;
+    return (await response.json()) as AlignResponse;
+  });
 }
