@@ -27,6 +27,10 @@ the commit that edited the document.
 - The rollover folds a lazily seeded bottom-tier membership into the learner's
   real league, so nobody holds two leagues in one week (§11.4).
 - One-off `pnpm db:week-saturday` moves stored Monday-keyed leagues (§11.4).
+- New **nightly boards** message at 22:00: the learner's league, the all-time
+  board and the Lazy Board (§11.7, §13).
+- The previously unused `digest_enabled` setting now controls it, with a toggle
+  in the settings panel (§15).
 
 ### 2026-09-24 — describes `bfb3958`
 
@@ -714,11 +718,51 @@ feature: the code states that an involuntary public shame list loses users and
 invites moderation problems. Opting out is one tap, and the redemption path is
 stated on the board itself.
 
+The same opt-in list is part of the nightly boards message (§11.7), so opting in
+means appearing in every recipient's chat, not only on `/lazy`.
+
+### 11.7 Nightly boards
+
+*Source: `apps/worker/src/jobs/nightly-boards.ts`, `apps/worker/src/jobs/boards-message.ts`, `packages/db/src/repositories/game.repo.ts` (`weekMemberships`, `globalRanks`)*
+
+At **22:00** every learner who has not switched it off receives one message with
+three boards:
+
+1. **Their league this week**: tier, the top `BOARD_SIZE = 10` with the same
+   🔼/🔽 zones as the in-bot screen, their own rank when they fall below the cut,
+   and how long the week has left. On Friday the line says the league closes at
+   midnight tonight. A learner with no league yet is told a lesson or review puts
+   them in one.
+2. **The all-time board**: top 10, plus their own rank when they are not in it.
+3. **The Lazy Board**: up to 10 opted-in absentees (§11.6), or a line saying
+   everyone is active.
+
+The recipient is marked ⬅️ wherever they appear. The footer says how to turn the
+message off.
+
+Why 22:00: late enough to be the day's summary, early enough that a learner on
+the Lazy Board or at risk of relegation can still study today.
+
+**One message, not three**, so the evening costs one notification.
+
+**Audience:** every non-blocked user with `digest_enabled` (default on). The
+setting existed in the schema before 2.1.0 but no job read it.
+
+**Skipped while nobody has points**, because an empty board is not worth a
+notification.
+
+**Cost:** the all-time board, every user's all-time rank, the week's memberships
+and the Lazy Board are each read once per run, and each league's standings once
+per league. Per-user work is only rendering. Sending shares the reminders'
+pacing and blocked-user handling (§12).
+
+Copy is duplicated in the worker for the same reason as the reminders' copy.
+
 ---
 
 ## 12. Reminders
 
-*Source: `apps/worker/src/jobs/reminders.ts`, `packages/db/src/repositories/settings.repo.ts` (`remindersDueThisHour`)*
+*Source: `apps/worker/src/jobs/reminders.ts`, `apps/worker/src/jobs/dispatch.ts`, `packages/db/src/repositories/settings.repo.ts` (`remindersDueThisHour`)*
 
 **Peak-hour nudges.** Runs hourly. The query selects only users whose personal
 peak activity hour matches the current UTC hour **and** who have not studied today
@@ -764,6 +808,7 @@ next interaction.
 | `prewarm.breadth` | `*/30 * * * *` |
 | `prewarm.depth` | `10 2 * * *` |
 | `digest.daily` | `0 20 * * *` |
+| `boards.nightly` | `0 22 * * *` |
 
 The cron timezone is the app timezone, so "06:00" means 06:00 for the learners,
 not UTC.
@@ -822,7 +867,7 @@ composer, and the broadcast route takes precedence over every other text route.
 | Preferred dictionary | cambridge | cambridge, oxford |
 | Reminders | on | — |
 | Morning motivation | off | — |
-| Daily digest | on | — |
+| Nightly boards (`digest_enabled`) | on | — |
 | Lazy board opt-in | off | — |
 | Timezone | Asia/Tehran | — |
 | Locale | inferred | fa, en |

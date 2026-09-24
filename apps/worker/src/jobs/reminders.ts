@@ -1,19 +1,9 @@
-import { dailyDispatchAudience, remindersDueThisHour, type ReminderTarget } from '@ngsl/db';
+import { dailyDispatchAudience, remindersDueThisHour } from '@ngsl/db';
 import { dayKey, streakStatus } from '@ngsl/core';
 import { config, createLogger } from '@ngsl/shared';
-import { Bot, GrammyError } from 'grammy';
-import { flagBlocked } from '@ngsl/db';
+import { deliver, pace, type DispatchResult } from './dispatch.js';
 
 const log = createLogger('worker.reminders');
-
-/** Same pacing rationale as the broadcast: stay well under ~30 msg/s. */
-const SEND_INTERVAL_MS = 45;
-
-let bot: Bot | undefined;
-function api(): Bot {
-  bot ??= new Bot(config().telegram.botToken);
-  return bot;
-}
 
 /**
  * Copy is duplicated here rather than imported from the bot's i18n catalogue.
@@ -34,25 +24,6 @@ const COPY = {
     motivation: '🌅 Good morning! Give English a few minutes today.',
   },
 } as const;
-
-async function deliver(target: ReminderTarget, text: string): Promise<boolean> {
-  try {
-    await api().api.sendMessage(target.telegramId, text, { parse_mode: 'HTML' });
-    return true;
-  } catch (error) {
-    if (error instanceof GrammyError && (error.error_code === 403 || error.error_code === 400)) {
-      await flagBlocked(target.telegramId).catch(() => undefined);
-    } else {
-      log.warn('Reminder send failed', { userId: target.userId, error });
-    }
-    return false;
-  }
-}
-
-export interface DispatchResult {
-  audience: number;
-  sent: number;
-}
 
 /**
  * Hourly nudge at each learner's own peak activity hour.
@@ -86,7 +57,7 @@ export async function runPeakHourReminders(now: Date = new Date()): Promise<Disp
         : copy.nudge;
 
     if (await deliver(target, text)) sent += 1;
-    await new Promise((resolve) => setTimeout(resolve, SEND_INTERVAL_MS));
+    await pace();
   }
 
   log.info('Peak-hour reminders dispatched', { hour: now.getUTCHours(), audience: targets.length, sent });
@@ -100,7 +71,7 @@ export async function runDailyMotivation(): Promise<DispatchResult> {
 
   for (const target of targets) {
     if (await deliver(target, COPY[target.locale].motivation)) sent += 1;
-    await new Promise((resolve) => setTimeout(resolve, SEND_INTERVAL_MS));
+    await pace();
   }
 
   log.info('Daily motivation dispatched', { audience: targets.length, sent });

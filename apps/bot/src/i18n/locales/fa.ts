@@ -187,6 +187,8 @@ export const fa = {
     remindersOff: '🔕 یادآوری: خاموش',
     motivationOn: '🌅 انگیزهٔ روزانه: روشن',
     motivationOff: '🌅 انگیزهٔ روزانه: خاموش',
+    digestOn: '🌙 جدول‌های شبانه: روشن',
+    digestOff: '🌙 جدول‌های شبانه: خاموش',
     shameOn: '😴 تابلوی تنبل‌ها: عضو',
     shameOff: '😴 تابلوی تنبل‌ها: غیرعضو',
     language: '🌐 زبان: {value}',

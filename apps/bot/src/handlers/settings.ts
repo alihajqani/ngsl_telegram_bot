@@ -58,6 +58,8 @@ function panelKeyboard(settings: Settings, locale: LocaleCode): InlineKeyboard {
       'st:mo',
     )
     .row()
+    .text(t(settings.digestEnabled ? 'settings.digestOn' : 'settings.digestOff'), 'st:dg')
+    .row()
     .text(t(settings.wallOfShameOptin ? 'settings.shameOn' : 'settings.shameOff'), 'st:ws')
     .row()
     .text(t('settings.language', { value: locale === 'fa' ? 'فارسی' : 'English' }), 'st:lg');
@@ -109,6 +111,9 @@ export async function settingsCallbackHandler(ctx: BotContext): Promise<void> {
         break;
       case 'st:mo':
         patch.motivationEnabled = !current.motivationEnabled;
+        break;
+      case 'st:dg':
+        patch.digestEnabled = !current.digestEnabled;
         break;
       case 'st:ws':
         patch.wallOfShameOptin = !current.wallOfShameOptin;

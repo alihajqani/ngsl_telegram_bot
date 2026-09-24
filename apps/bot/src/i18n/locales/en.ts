@@ -188,6 +188,8 @@ export const en: Locale = {
     remindersOff: '🔕 Reminders: off',
     motivationOn: '🌅 Daily motivation: on',
     motivationOff: '🌅 Daily motivation: off',
+    digestOn: '🌙 Nightly boards: on',
+    digestOff: '🌙 Nightly boards: off',
     shameOn: '😴 Lazy Board: joined',
     shameOff: '😴 Lazy Board: not joined',
     language: '🌐 Language: {value}',

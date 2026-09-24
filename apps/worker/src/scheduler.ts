@@ -7,6 +7,7 @@ import { config, createLogger } from '@ngsl/shared';
 import { Queue, Worker, type Job } from 'bullmq';
 import { redisConnection } from '@ngsl/queue';
 import { runHealthSync } from './jobs/health-sync.js';
+import { runNightlyBoards } from './jobs/nightly-boards.js';
 import { runDailyMotivation, runPeakHourReminders } from './jobs/reminders.js';
 
 const log = createLogger('worker.scheduler');
@@ -31,6 +32,7 @@ const SCHEDULES: { name: string; cron: string }[] = [
   { name: 'prewarm.breadth', cron: '*/30 * * * *' },
   { name: 'prewarm.depth', cron: '10 2 * * *' },
   { name: 'digest.daily', cron: '0 20 * * *' },
+  { name: 'boards.nightly', cron: '0 22 * * *' },
 ];
 
 async function run(name: string): Promise<void> {
@@ -55,6 +57,9 @@ async function run(name: string): Promise<void> {
       return;
     case 'prewarm.depth':
       if (config().jobs.prewarmEnabled) await runPrewarm('depth');
+      return;
+    case 'boards.nightly':
+      await runNightlyBoards();
       return;
     case 'digest.daily':
       reportDailyDigest(await adminStats(), dayKey(new Date(), config().app.timezone));

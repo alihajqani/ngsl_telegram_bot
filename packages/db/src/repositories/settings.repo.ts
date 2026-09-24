@@ -182,7 +182,7 @@ export async function remindersDueThisHour(
   return [...rows];
 }
 
-/** Audience for the daily motivational line and the morning digest. */
+/** Audience for the morning motivational line and the nightly boards (`digest_enabled`). */
 export async function dailyDispatchAudience(
   kind: 'motivation' | 'digest',
   database: Database = db(),

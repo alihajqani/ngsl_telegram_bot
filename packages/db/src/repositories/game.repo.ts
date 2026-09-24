@@ -92,6 +92,21 @@ export async function globalRank(
   return row;
 }
 
+/** Every user's all-time rank in one pass, so a bulk send needs no per-user query. */
+export async function globalRanks(
+  database: Database = db(),
+): Promise<Map<number, { points: number; rank: number }>> {
+  const rows = await database.execute<Row<{ userId: number; points: number; rank: number }>>(sql`
+    select l.user_id as "userId",
+           sum(l.delta)::int as points,
+           rank() over (order by sum(l.delta) desc)::int as rank
+      from ${pointsLedger} l
+      join ${appUser} u on u.id = l.user_id
+     where not u.blocked
+     group by l.user_id
+  `);
+  return new Map([...rows].map((r) => [r.userId, { points: r.points, rank: r.rank }]));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Streaks
@@ -234,6 +249,19 @@ export async function placeInLeague(
         set: { points: sql`${leagueMembership.points} + ${carried}` },
       });
   });
+}
+
+/** Every membership of one week, keyed by user — the nightly boards' lookup. */
+export async function weekMemberships(
+  weekStart: string,
+  database: Database = db(),
+): Promise<Map<number, { leagueId: number; tier: number }>> {
+  const rows = await database
+    .select({ userId: leagueMembership.userId, leagueId: league.id, tier: league.tier })
+    .from(leagueMembership)
+    .innerJoin(league, eq(league.id, leagueMembership.leagueId))
+    .where(eq(league.weekStart, weekStart));
+  return new Map(rows.map((r) => [r.userId, { leagueId: r.leagueId, tier: r.tier }]));
 }
 
 /** A user's current-week membership, if any. */
