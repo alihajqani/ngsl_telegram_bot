@@ -1,5 +1,6 @@
 import { PROMOTE_COUNT, DEMOTE_COUNT, tierName, type Tier } from '@ngsl/core';
 import type { LazyRow, LeaderboardRow } from '@ngsl/db';
+import { InlineKeyboard } from 'grammy';
 
 /**
  * The nightly boards message: this week's league, the all-time board and the
@@ -11,6 +12,9 @@ import type { LazyRow, LeaderboardRow } from '@ngsl/db';
 
 /** Rows shown per board; the learner's own rank is added when they fall below. */
 export const BOARD_SIZE = 10;
+
+/** Handled by the bot: must match `CB.digestOff` in `apps/bot/src/keyboards.ts`. */
+const DIGEST_OFF_CALLBACK = 'dg:off';
 
 const COPY = {
   fa: {
@@ -28,7 +32,7 @@ const COPY = {
     lazyEmpty: 'هیچ‌کس اینجا نیست، همه فعال‌اند! 🎉',
     lazyDays: (days: number) => `${days} روز غیبت`,
     lazyRedemption: '<i>یک جلسهٔ مطالعه کافی است تا از این تابلو خارج شوید.</i>',
-    footer: '<i>خاموش کردن این پیام: ⚙️ تنظیمات ← 🌙 جدول‌های شبانه</i>',
+    offButton: '🔕 خاموش کردن جدول‌های شبانه',
     tiers: { bronze: 'برنز', silver: 'نقره', gold: 'طلا', sapphire: 'یاقوت', diamond: 'الماس' },
   },
   en: {
@@ -46,7 +50,7 @@ const COPY = {
     lazyEmpty: 'Nobody here, everyone is active! 🎉',
     lazyDays: (days: number) => `${days} days away`,
     lazyRedemption: '<i>One study session takes you off this board.</i>',
-    footer: '<i>To turn this off: ⚙️ Settings → 🌙 Nightly boards</i>',
+    offButton: '🔕 Turn off nightly boards',
     tiers: { bronze: 'Bronze', silver: 'Silver', gold: 'Gold', sapphire: 'Sapphire', diamond: 'Diamond' },
   },
 } as const satisfies Record<'fa' | 'en', { tiers: Record<Tier, string> } & Record<string, unknown>>;
@@ -117,6 +121,10 @@ export function renderNightlyBoards(view: BoardsView): string {
     lines.push(copy.lazyRedemption);
   }
 
-  lines.push('', copy.footer);
   return lines.join('\n');
+}
+
+/** One tap under the message switches it off; settings can turn it back on. */
+export function nightlyBoardsKeyboard(locale: 'fa' | 'en'): InlineKeyboard {
+  return new InlineKeyboard().text(COPY[locale].offButton, DIGEST_OFF_CALLBACK);
 }

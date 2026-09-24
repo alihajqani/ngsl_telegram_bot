@@ -24,15 +24,15 @@ import {
   wallOptInHandler,
 } from './handlers/game.js';
 import {
+  adminBroadcastCancelHandler,
   adminBroadcastPromptHandler,
   adminHandler,
   broadcastHandler,
   isAwaitingBroadcast,
 } from './handlers/admin.js';
-import { settingsCallbackHandler, settingsHandler } from './handlers/settings.js';
+import { digestOffHandler, settingsCallbackHandler, settingsHandler } from './handlers/settings.js';
 import { flushMonitor, isMonitorEnabled, reportLog } from '@ngsl/monitor';
-import { t } from './i18n/i18n.js';
-import { CB_PATTERN } from './keyboards.js';
+import { CB, CB_PATTERN, menuKeyFor, type MenuKey } from './keyboards.js';
 import { activityTracker, channelGuard, localeContext } from './middlewares.js';
 import { initialSession, type BotContext, type SessionData } from './types.js';
 
@@ -43,15 +43,44 @@ const COMMANDS = [
   { command: 'newwords', description: 'Learn new words' },
   { command: 'review', description: 'Review due words' },
   { command: 'write', description: 'Writing practice' },
-  { command: 'streak', description: 'Streak, points and leagues' },
+  { command: 'streak', description: 'Streak and points' },
+  { command: 'league', description: "This week's league" },
+  { command: 'lazy', description: 'Lazy Board' },
   { command: 'settings', description: 'Settings' },
   { command: 'progress', description: 'Your progress' },
 ];
+
+/** Shown to Telegram clients set to Persian; everyone else gets `COMMANDS`. */
+const COMMANDS_FA = [
+  { command: 'start', description: 'شروع / شروع دوباره' },
+  { command: 'newwords', description: 'واژه‌های جدید' },
+  { command: 'review', description: 'مرور واژه‌ها' },
+  { command: 'write', description: 'تمرین نوشتن' },
+  { command: 'streak', description: 'امتیاز و رشته' },
+  { command: 'league', description: 'لیگ هفته' },
+  { command: 'lazy', description: 'تابلوی تنبل‌ها' },
+  { command: 'settings', description: 'تنظیمات' },
+  { command: 'progress', description: 'پیشرفت شما' },
+];
+
+/** Every main-menu button's handler. A `Record` so a new button without one fails the build. */
+const MENU_ROUTES: Record<MenuKey, (ctx: BotContext) => Promise<void>> = {
+  newWords: newWordsHandler,
+  review: reviewHandler,
+  writing: writeHandler,
+  progress: progressHandler,
+  streak: streakHandler,
+  league: leagueHandler,
+  lazy: lazyBoardHandler,
+  settings: settingsHandler,
+  admin: adminHandler,
+};
 
 /** Best-effort: publishes the command menu, never throws. */
 async function publishCommands(bot: Bot<BotContext>): Promise<void> {
   try {
     await bot.api.setMyCommands(COMMANDS);
+    await bot.api.setMyCommands(COMMANDS_FA, { language_code: 'fa' });
     log.info('Command menu published');
   } catch (error) {
     log.warn('Could not publish the command menu — Telegram keeps the previous one', { error });
@@ -103,11 +132,14 @@ async function main(): Promise<void> {
   // ── Callback queries ──────────────────────────────────────────────────────
   bot.callbackQuery('chk', checkMembershipHandler);
   bot.callbackQuery('wcancel', cancelWritingHandler);
-  bot.callbackQuery('league', leagueHandler);
-  bot.callbackQuery('global', globalBoardHandler);
-  bot.callbackQuery('buddy', buddyHandler);
+  bot.callbackQuery(CB.league, leagueHandler);
+  bot.callbackQuery(CB.global, globalBoardHandler);
+  bot.callbackQuery(CB.lazy, lazyBoardHandler);
+  bot.callbackQuery(CB.buddy, buddyHandler);
   bot.callbackQuery(/^shame:(on|off)$/, wallOptInHandler);
-  bot.callbackQuery('adm:bc', adminBroadcastPromptHandler);
+  bot.callbackQuery(CB.broadcast, adminBroadcastPromptHandler);
+  bot.callbackQuery(CB.broadcastCancel, adminBroadcastCancelHandler);
+  bot.callbackQuery(CB.digestOff, digestOffHandler);
   bot.callbackQuery(/^st:/, settingsCallbackHandler);
   bot.callbackQuery(CB_PATTERN.examples, examplesHandler);
   bot.callbackQuery(CB_PATTERN.collocations, collocationsHandler);
@@ -132,22 +164,8 @@ async function main(): Promise<void> {
       return writingSubmissionHandler(ctx);
     }
 
-    switch (ctx.message.text) {
-      case t('menu.newWords'):
-        return newWordsHandler(ctx);
-      case t('menu.review'):
-        return reviewHandler(ctx);
-      case t('menu.progress'):
-        return progressHandler(ctx);
-      case t('menu.writing'):
-        return writeHandler(ctx);
-      case t('menu.streak'):
-        return streakHandler(ctx);
-      case t('menu.settings'):
-        return settingsHandler(ctx);
-      default:
-        return next();
-    }
+    const key = menuKeyFor(ctx.message.text);
+    return key ? MENU_ROUTES[key](ctx) : next();
   });
 
   bot.catch((error) => {

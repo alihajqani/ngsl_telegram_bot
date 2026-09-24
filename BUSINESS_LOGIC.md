@@ -20,6 +20,14 @@
 Newest first. Record the commit whose behaviour the document now describes, not
 the commit that edited the document.
 
+### 2026-09-24 — describes `v2.2.0`
+
+- Every learner feature is on a main-menu button; the admin panel has a button
+  shown to admins only; the three boards link to each other (§2.1).
+- `/league` and `/lazy` join the command menu, with Persian descriptions (§2.1).
+- The nightly boards message carries a one-tap off button (§11.7).
+- The broadcast prompt has a cancel button (§14).
+
 ### 2026-09-24 — describes `v2.1.0`
 
 - League weeks start on **Saturday** and close on Friday; the rollover moved from
@@ -81,6 +89,30 @@ when handlers run.
 
 An activity histogram (24 hourly buckets) is incremented fire-and-forget on every
 update. It is the sole input to peak-hour reminders (§12).
+
+### 2.1 Navigation
+
+*Source: `apps/bot/src/keyboards.ts` (`MENU_LAYOUT`, `boardsNavKeyboard`), `apps/bot/src/index.ts` (`MENU_ROUTES`, `COMMANDS`)*
+
+**Nothing is reachable only by typing a command.** The persistent main menu has a
+button for every learner feature:
+
+| | |
+|---|---|
+| 📖 New words | 🔄 Review |
+| ✍️ Writing | 📊 Progress |
+| 🔥 Streak & points | 🏆 League |
+| 😴 Lazy Board | ⚙️ Settings |
+
+Admins get a fifth row, 🛠 Admin. The routes are a `Record<MenuKey, handler>`,
+so a button added to the layout without a handler fails the build.
+
+The three boards (league, all-time, Lazy Board) each carry buttons to the other
+two, and the streak screen links to all three plus the buddy invite.
+
+Commands mirror the menu. `/league` and `/lazy` are in the published command
+list; `/admin` is deliberately not. Clients set to Persian get Persian command
+descriptions, everyone else English.
 
 ---
 
@@ -737,8 +769,10 @@ three boards:
 3. **The Lazy Board**: up to 10 opted-in absentees (§11.6), or a line saying
    everyone is active.
 
-The recipient is marked ⬅️ wherever they appear. The footer says how to turn the
-message off.
+The recipient is marked ⬅️ wherever they appear. A **🔕 button** under the
+message (`dg:off`) turns it off in one tap and removes itself; settings turn it
+back on. The worker and the bot share that callback string by convention, noted
+at both ends.
 
 Why 22:00: late enough to be the day's summary, early enough that a learner on
 the Lazy Board or at risk of relegation can still study today.
@@ -847,6 +881,8 @@ edited into the status message every 250 recipients. It is **deliberately
 detached**: a 10,000-user broadcast takes minutes and awaiting it would hold the
 update handler open for the whole run. Each recipient is rendered in their own
 locale. A 403/400 flags them as blocked so the next broadcast skips them.
+
+The broadcast prompt has a ❌ Cancel button; typing `/cancel` still works.
 
 Warnings and errors are mirrored into a Telegram technical topic when the monitor
 is enabled.

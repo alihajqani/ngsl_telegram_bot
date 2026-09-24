@@ -9,6 +9,28 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-24
+
+### Added
+
+- **Every feature is on a button.** The main menu gains 🏆 League and 😴 Lazy
+  Board, and admins get a 🛠 Admin button. Each board screen links to the other
+  two, and the streak screen links to the Lazy Board.
+- **One-tap off button** under the nightly boards message.
+- **Cancel button** on the admin broadcast prompt.
+- `/league` and `/lazy` in the published command menu, with Persian command
+  descriptions for Persian-language clients.
+
+### Changed
+
+- The nightly boards message drops its "turn this off in settings" footer in
+  favour of the button.
+
+### Upgrade notes
+
+No database or configuration change. A chat keeps the old reply keyboard until
+the bot sends the menu again, which happens on `/start` or a language change.
+
 ## [2.1.0] - 2026-09-24
 
 ### Added

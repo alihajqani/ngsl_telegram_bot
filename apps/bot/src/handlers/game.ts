@@ -21,6 +21,7 @@ import {
 import { config, createLogger } from '@ngsl/shared';
 import { InlineKeyboard } from 'grammy';
 import { escapeHtml, t } from '../i18n/i18n.js';
+import { boardsNavKeyboard, CB } from '../keyboards.js';
 import type { BotContext } from '../types.js';
 
 const log = createLogger('bot.game');
@@ -62,10 +63,11 @@ export async function streakHandler(ctx: BotContext): Promise<void> {
   await ctx.reply(lines.join('\n'), {
     parse_mode: 'HTML',
     reply_markup: new InlineKeyboard()
-      .text(t('game.leagueButton'), 'league')
-      .text(t('game.globalButton'), 'global')
+      .text(t('game.leagueButton'), CB.league)
+      .text(t('game.globalButton'), CB.global)
       .row()
-      .text(t('game.buddyButton'), 'buddy'),
+      .text(t('game.buddyButton'), CB.buddy)
+      .text(t('game.lazyButton'), CB.lazy),
   });
 }
 
@@ -77,7 +79,10 @@ export async function leagueHandler(ctx: BotContext): Promise<void> {
 
   const membership = await currentMembership(userId, weekStartKey(today()));
   if (!membership) {
-    await ctx.reply(t('game.noLeague'), { parse_mode: 'HTML' });
+    await ctx.reply(t('game.noLeague'), {
+      parse_mode: 'HTML',
+      reply_markup: boardsNavKeyboard('league'),
+    });
     return;
   }
 
@@ -97,7 +102,10 @@ export async function leagueHandler(ctx: BotContext): Promise<void> {
   }
 
   lines.push('', t('game.leagueFooter'));
-  await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+  await ctx.reply(lines.join('\n'), {
+    parse_mode: 'HTML',
+    reply_markup: boardsNavKeyboard('league'),
+  });
 }
 
 /** All-time board — vanity, deliberately secondary to the league. */
@@ -118,7 +126,10 @@ export async function globalBoardHandler(ctx: BotContext): Promise<void> {
     lines.push('', t('game.yourRank', { rank: mine.rank, points: mine.points }));
   }
 
-  await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+  await ctx.reply(lines.join('\n'), {
+    parse_mode: 'HTML',
+    reply_markup: boardsNavKeyboard('global'),
+  });
 }
 
 /**
@@ -195,9 +206,13 @@ export async function lazyBoardHandler(ctx: BotContext): Promise<void> {
 
   await ctx.reply(lines.join('\n'), {
     parse_mode: 'HTML',
-    reply_markup: new InlineKeyboard()
-      .text(t('game.lazyOptIn'), 'shame:on')
-      .text(t('game.lazyOptOut'), 'shame:off'),
+    reply_markup: boardsNavKeyboard(
+      'lazy',
+      new InlineKeyboard()
+        .text(t('game.lazyOptIn'), 'shame:on')
+        .text(t('game.lazyOptOut'), 'shame:off')
+        .row(),
+    ),
   });
 }
 

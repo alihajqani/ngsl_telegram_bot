@@ -9,7 +9,7 @@ import {
   type LeaderboardRow,
 } from '@ngsl/db';
 import { config, createLogger } from '@ngsl/shared';
-import { BOARD_SIZE, renderNightlyBoards } from './boards-message.js';
+import { BOARD_SIZE, nightlyBoardsKeyboard, renderNightlyBoards } from './boards-message.js';
 import { deliver, pace, type DispatchResult } from './dispatch.js';
 
 const log = createLogger('worker.nightly-boards');
@@ -62,7 +62,7 @@ export async function runNightlyBoards(now: Date = new Date()): Promise<Dispatch
       lazy,
     });
 
-    if (await deliver(target, text)) sent += 1;
+    if (await deliver(target, text, nightlyBoardsKeyboard(target.locale))) sent += 1;
     await pace();
   }
 

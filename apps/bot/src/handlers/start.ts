@@ -4,6 +4,7 @@ import { t } from '../i18n/i18n.js';
 import { channelPromptKeyboard, mainMenuKeyboard } from '../keyboards.js';
 import { isMember } from '../middlewares.js';
 import type { BotContext } from '../types.js';
+import { isAdmin } from './admin.js';
 import { tryAcceptBuddy } from './game.js';
 
 const NGSL_SIZE = 2809;
@@ -44,7 +45,7 @@ export async function sendWelcome(ctx: BotContext): Promise<void> {
 
   await ctx.reply(t('start.guide'), {
     parse_mode: 'HTML',
-    reply_markup: mainMenuKeyboard(),
+    reply_markup: mainMenuKeyboard({ admin: isAdmin(ctx) }),
   });
 }
 

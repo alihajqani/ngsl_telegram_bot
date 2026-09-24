@@ -2,6 +2,7 @@ import { adminStats, broadcastAudience, flagBlocked } from '@ngsl/db';
 import { config, createLogger } from '@ngsl/shared';
 import { GrammyError, InlineKeyboard } from 'grammy';
 import { escapeHtml, runWithLocale, t } from '../i18n/i18n.js';
+import { CB } from '../keyboards.js';
 import type { BotContext } from '../types.js';
 
 const log = createLogger('bot.admin');
@@ -36,7 +37,7 @@ export async function adminHandler(ctx: BotContext): Promise<void> {
     ].join('\n'),
     {
       parse_mode: 'HTML',
-      reply_markup: new InlineKeyboard().text('📣 Broadcast', 'adm:bc'),
+      reply_markup: new InlineKeyboard().text('📣 Broadcast', CB.broadcast),
     },
   );
 }
@@ -46,7 +47,20 @@ export async function adminBroadcastPromptHandler(ctx: BotContext): Promise<void
   if (!isAdmin(ctx)) return;
 
   ctx.session.awaitingBroadcast = true;
-  await ctx.reply('📣 Send the message to broadcast, or /cancel.', { parse_mode: 'HTML' });
+  await ctx.reply('📣 Send the message to broadcast.', {
+    parse_mode: 'HTML',
+    reply_markup: new InlineKeyboard().text('❌ Cancel', CB.broadcastCancel),
+  });
+}
+
+/** The prompt's cancel button; typing /cancel still works too. */
+export async function adminBroadcastCancelHandler(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
+  if (!isAdmin(ctx) || !ctx.session.awaitingBroadcast) return;
+
+  ctx.session.awaitingBroadcast = false;
+  await ctx.editMessageReplyMarkup().catch(() => undefined);
+  await ctx.reply('Broadcast cancelled.');
 }
 
 /** True when this text message is the pending broadcast body. */

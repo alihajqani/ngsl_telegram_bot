@@ -3,6 +3,7 @@ import { InlineKeyboard } from 'grammy';
 import { runWithLocale, t, type LocaleCode } from '../i18n/i18n.js';
 import { mainMenuKeyboard } from '../keyboards.js';
 import type { BotContext } from '../types.js';
+import { isAdmin } from './admin.js';
 
 /**
  * Settings panel.
@@ -152,8 +153,25 @@ export async function settingsCallbackHandler(ctx: BotContext): Promise<void> {
     if (localeChanged) {
       await ctx.reply(t('settings.languageChanged'), {
         parse_mode: 'HTML',
-        reply_markup: mainMenuKeyboard(),
+        reply_markup: mainMenuKeyboard({ admin: isAdmin(ctx) }),
       });
     }
   });
+}
+
+/**
+ * The button under the nightly boards message (`dg:off`, sent by the worker):
+ * switch the message off without a trip to the settings panel.
+ */
+export async function digestOffHandler(ctx: BotContext): Promise<void> {
+  const userId = ctx.session.userId;
+  if (userId === undefined) {
+    await ctx.answerCallbackQuery();
+    return;
+  }
+
+  await updateSettings(userId, { digestEnabled: false });
+  await ctx.answerCallbackQuery({ text: t('settings.digestStopped'), show_alert: true });
+  // Drop the button so the old message cannot be tapped again.
+  await ctx.editMessageReplyMarkup().catch(() => undefined);
 }

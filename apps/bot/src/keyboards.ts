@@ -12,6 +12,14 @@ export const CB = {
   clips: (wordId: number) => `cl:${wordId}`,
   review: (result: 'c' | 'w' | 'k', wordId: number) => `rv:${result}:${wordId}`,
   checkMembership: 'chk',
+  league: 'league',
+  global: 'global',
+  lazy: 'lazy',
+  buddy: 'buddy',
+  broadcast: 'adm:bc',
+  broadcastCancel: 'adm:cx',
+  /** Sent by the worker under the nightly boards message. */
+  digestOff: 'dg:off',
 } as const;
 
 export const CB_PATTERN = {
@@ -21,18 +29,51 @@ export const CB_PATTERN = {
   review: /^rv:([cwk]):(\d+)$/,
 } as const;
 
-export function mainMenuKeyboard(): Keyboard {
-  return new Keyboard()
-    .text(t('menu.newWords'))
-    .text(t('menu.review'))
-    .row()
-    .text(t('menu.writing'))
-    .text(t('menu.streak'))
-    .row()
-    .text(t('menu.progress'))
-    .text(t('menu.settings'))
-    .resized()
-    .persistent();
+/**
+ * Every learner feature has a reply-keyboard button, in this order. Commands
+ * exist too, but nothing should be reachable only by typing one. The routes
+ * live in `index.ts` as a `Record<MenuKey, …>`, so a button without a handler
+ * fails the build.
+ */
+export const MENU_LAYOUT = [
+  ['newWords', 'review'],
+  ['writing', 'progress'],
+  ['streak', 'league'],
+  ['lazy', 'settings'],
+] as const;
+
+export type MenuKey = (typeof MENU_LAYOUT)[number][number] | 'admin';
+
+/** The persistent main menu. The admin button is added for admins only. */
+export function mainMenuKeyboard(options: { admin?: boolean } = {}): Keyboard {
+  const keyboard = new Keyboard();
+  MENU_LAYOUT.forEach((row, index) => {
+    if (index > 0) keyboard.row();
+    for (const key of row) keyboard.text(t(`menu.${key}`));
+  });
+  if (options.admin) keyboard.row().text(t('menu.admin'));
+  return keyboard.resized().persistent();
+}
+
+/** The menu button whose label is `text` in the active locale, if any. */
+export function menuKeyFor(text: string): MenuKey | undefined {
+  const keys: MenuKey[] = [...MENU_LAYOUT.flat(), 'admin'];
+  return keys.find((key) => t(`menu.${key}`) === text);
+}
+
+export type Board = 'league' | 'global' | 'lazy';
+
+/** Buttons to the other two boards, so each board screen leads to the rest. */
+export function boardsNavKeyboard(current: Board, keyboard = new InlineKeyboard()): InlineKeyboard {
+  const label: Record<Board, string> = {
+    league: t('game.leagueButton'),
+    global: t('game.globalButton'),
+    lazy: t('game.lazyButton'),
+  };
+  for (const board of ['league', 'global', 'lazy'] as const) {
+    if (board !== current) keyboard.text(label[board], CB[board]);
+  }
+  return keyboard;
 }
 
 export function channelPromptKeyboard(channel: string): InlineKeyboard {

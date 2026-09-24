@@ -1,6 +1,6 @@
 import { flagBlocked } from '@ngsl/db';
 import { config, createLogger } from '@ngsl/shared';
-import { Bot, GrammyError } from 'grammy';
+import { Bot, GrammyError, type InlineKeyboard } from 'grammy';
 
 /** Bulk sends from the worker: reminders, motivation, nightly boards. */
 
@@ -29,9 +29,16 @@ export interface DispatchResult {
  * Send one HTML message. A 403 or 400 means the user blocked the bot or the chat
  * is gone, so they are flagged and later bulk sends skip them.
  */
-export async function deliver(target: DispatchTarget, text: string): Promise<boolean> {
+export async function deliver(
+  target: DispatchTarget,
+  text: string,
+  keyboard?: InlineKeyboard,
+): Promise<boolean> {
   try {
-    await api().api.sendMessage(target.telegramId, text, { parse_mode: 'HTML' });
+    await api().api.sendMessage(target.telegramId, text, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
     return true;
   } catch (error) {
     if (error instanceof GrammyError && (error.error_code === 403 || error.error_code === 400)) {

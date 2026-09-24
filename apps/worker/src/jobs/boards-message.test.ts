@@ -1,6 +1,6 @@
 import type { LazyRow, LeaderboardRow } from '@ngsl/db';
 import { describe, expect, it } from 'vitest';
-import { BOARD_SIZE, renderNightlyBoards, type BoardsView } from './boards-message.js';
+import { BOARD_SIZE, nightlyBoardsKeyboard, renderNightlyBoards, type BoardsView } from './boards-message.js';
 
 const board = (count: number): LeaderboardRow[] =>
   Array.from({ length: count }, (_, i) => ({
@@ -29,7 +29,12 @@ describe('renderNightlyBoards', () => {
     expect(text).toContain('برترین‌های همیشگی');
     expect(text).toContain('تابلوی تنبل‌ها');
     expect(text).toContain('Sleepy — 6 روز غیبت');
-    expect(text).toContain('تنظیمات');
+  });
+
+  it('offers a one-tap off button that the bot handles as dg:off', () => {
+    const button = nightlyBoardsKeyboard('fa').inline_keyboard[0]?.[0];
+    expect(button?.text).toContain('خاموش');
+    expect(button && 'callback_data' in button ? button.callback_data : undefined).toBe('dg:off');
   });
 
   it('marks the recipient on both boards', () => {
