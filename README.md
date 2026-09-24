@@ -70,6 +70,8 @@ the moment the checkout is renamed.
 
 ## Commands
 
+Release history and upgrade steps are in [CHANGELOG.md](CHANGELOG.md).
+
 | Command | Purpose |
 |---|---|
 | `pnpm typecheck` | Build-mode type check across all packages |
@@ -78,6 +80,7 @@ the moment the checkout is renamed.
 | `pnpm db:generate` | Emit a migration from schema changes |
 | `pnpm db:push` | Apply the schema directly (development) |
 | `pnpm db:seed` | Seed `word` from `data/ngsl.csv`; idempotent. `--dry-run` validates the CSV only |
+| `pnpm db:week-saturday` | One-off 2.1.0 upgrade: move stored leagues from Monday to Saturday weeks; idempotent |
 | `pnpm ingest` | Ingest the corpus. `--list`, `--channel=<slug>`, `--limit=<n>`, `--delay=<ms>` |
 | `pnpm db:studio` | Browse the database |
 
