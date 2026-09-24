@@ -20,6 +20,21 @@
 Newest first. Record the commit whose behaviour the document now describes, not
 the commit that edited the document.
 
+### 2026-09-24 — describes `v3.0.0`
+
+- The clip pipeline is rebuilt around one download per source video and local,
+  frame-accurate cuts (§8.1, §8.4). A clip is one sentence in `segment_media`,
+  shared by every word in it; `clip`, `user_clip_seen` and `clip_vote` are gone.
+- Cuts come from forced alignment when the aligner sidecar runs, else from
+  subtitle timing snapped to pauses; no more 3-second lead-in, and long
+  sentences are skipped instead of truncated (§8.4).
+- Channel feeds and raw subtitles are cached; yt-dlp runs with Node as its
+  JavaScript runtime, a writable cookie copy, and a Redis bot-wall breaker (§8.2,
+  §8.3).
+- Pre-warm picks whole videos by marginal gain (§8.5).
+- Clips are served one at a time with arrows, the word bolded, votes and a
+  YouTube link; free search by typing (§8.6, §2.1).
+
 ### 2026-09-24 — describes `v2.2.0`
 
 - Every learner feature is on a main-menu button; the admin panel has a button
@@ -100,11 +115,12 @@ button for every learner feature:
 | | |
 |---|---|
 | 📖 New words | 🔄 Review |
-| ✍️ Writing | 📊 Progress |
-| 🔥 Streak & points | 🏆 League |
-| 😴 Lazy Board | ⚙️ Settings |
+| 🔎 Search | ✍️ Writing |
+| 📊 Progress | 🔥 Streak & points |
+| 🏆 League | 😴 Lazy Board |
+| ⚙️ Settings | |
 
-Admins get a fifth row, 🛠 Admin. The routes are a `Record<MenuKey, handler>`,
+Admins get an extra row, 🛠 Admin. The routes are a `Record<MenuKey, handler>`,
 so a button added to the layout without a handler fails the build.
 
 The three boards (league, all-time, Lazy Board) each carry buttons to the other
@@ -164,7 +180,8 @@ The per-bucket quota is `ceil(limit / 10)`, floored at 1, so small requests stil
 reach every bucket.
 
 **Clip readiness.** Within a bucket, words that already have a rendered,
-non-disabled clip sort first, so the learner rarely waits on a render.
+non-disabled clip (through `word_occurrence` → `segment_media`) sort first, so
+the learner rarely waits on a render.
 
 Words already in the user's deck are excluded by an anti-join. The result is
 shuffled.
@@ -261,11 +278,11 @@ The progress screen renders a 10-cell bar (`▓`/`░`).
 
 ### 8.1 Why it is shaped this way
 
-*Source: `apps/worker/src/vault.ts`, `packages/db/src/repositories/clips.repo.ts` (`saveClipFileId`)*
+*Source: `apps/worker/src/vault.ts`, `packages/db/src/repositories/clips.repo.ts` (`saveSegmentMedia`)*
 
 **No clip is ever rendered in response to a user request.**
 
-Each clip is rendered once, uploaded to a **vault** (a private forum topic), and
+Each clip is cut once, uploaded to a **vault** (a private forum topic), and
 Telegram mints a reusable `file_id` for it. From then on, serving that video to
 any user is a single API call: no download, no ffmpeg, no contact with YouTube on
 the request path.
@@ -273,17 +290,40 @@ the request path.
 Those ids are **never expired**. The code notes that v1's 60-day TTL threw them
 away and paid to rebuild them.
 
+**A clip is one sentence, not one (sentence, word) pair.** `segment_media` is
+keyed by segment. The cut depends only on the sentence, so one file serves every
+NGSL word the sentence contains, and words reach clips through
+`word_occurrence`. Before 3.0.0 the same sentence was rendered and uploaded once
+per word it contained.
+
+**Only YouTube-facing step: one download per source video.** Everything else,
+from loudness to the cut itself, happens locally on that file. Before 3.0.0 every
+clip was a separate yt-dlp extraction of its video (`--download-sections`),
+which multiplied YouTube requests by the number of clips per video and was the
+main trigger of the bot wall.
+
 ### 8.2 Corpus ingest
 
-*Source: `packages/media/src/{ingest,subtitles,enumerate,segment,quality,lexicon}.ts`, `data/channels.yml`*
+*Source: `packages/media/src/{ingest,enumerate,subtitles,segment,quality,lexicon}.ts`, `data/channels.yml`*
 
 **Channel whitelist.** Quality is decided once, per channel, rather than per
 search result.
+
+**The feed is read once and cached.** `enumerateChannel` reads a channel's whole
+upload feed with `--flat-playlist` and stores every video with its `feed_index`
+(1 = newest). Reaching the oldest uploads means paging through every newer one
+anyway (measured: four and a half minutes for TED), so later runs take the next
+`pending` videos straight from the database in the channel's crawl order. The
+feed is re-read only after `ENUMERATE_TTL_DAYS` = 30, or with `--refresh`.
+Shorts under 60 seconds are skipped.
 
 **Human-authored subtitles only.** yt-dlp is invoked with `--write-subs` and
 deliberately *without* `--write-auto-subs`. A video carrying only machine
 captions produces no file, is recorded as `sub_status='none'`, and is **never
 probed again**.
+
+**The raw track is kept** in `video_subtitle`, so re-segmenting or re-aligning a
+video never asks YouTube again.
 
 **Crawl oldest-first.** YouTube retired community-contributed captions in
 September 2020, so older uploads are likelier to carry real subtitles. Measured
@@ -293,8 +333,8 @@ English Speeches went 0/6 → 6/6.
 **Match `en.*`, not `en`.** Some channels publish `en-GB` and others `en-US`;
 exact matching silently discarded both.
 
-**Cue→sentence segmentation.** The most intricate part of the pipeline. Raw
-subtitle cues break wherever the caption line filled up:
+**Cue→sentence segmentation.** Raw subtitle cues break wherever the caption line
+filled up:
 
 ```
 [12.3s] "and that's why the apple"
@@ -319,8 +359,12 @@ a sentence. Rules:
 - Flush happens *before* appending, so an oversized cue starts the next segment
   instead of being swallowed into a full one.
 - Caps: 16,000 ms and 45 words per segment; minimum 4 words.
-- Segment timing comes from whole cues, so a clip opens and closes on caption
-  boundaries rather than mid-syllable.
+
+**Complete sentences.** A segment is `complete` when it starts where the
+previous sentence ended (or at the top of the video) **and** closes on terminal
+punctuation. A segment cut by the length cap is never complete, and neither is
+the remainder that follows it. **Only complete segments are cut into clips**, so
+a learner never gets half a thought.
 
 **Quality score** (`packages/media/src/quality.ts`), in [0, 1], weighted:
 
@@ -334,13 +378,13 @@ a sentence. Rules:
 Cleanliness penalises >50% capitals (−0.5), leftover brackets (−0.2), opening on
 a conjunction (−0.25), and not starting with a capital or quote (−0.15).
 
-**This score is a ranking signal, not a filter.** Nothing is discarded: a
-mediocre clip beats no clip when a word is rare.
+The score ranks sentences for rendering and serving; it does not discard them.
 
 **NGSL resolution** (`packages/media/src/lexicon.ts`). Each sentence is resolved
 to word ids once, at ingest, and written into `word_occurrence` as a precomputed
-posting list. This is why serving a word needs no search engine: the query
-vocabulary is closed and known at build time.
+posting list, together with the **surface forms** the word appeared as ("went"
+for go, "don't" for do and for not). Those forms are what a clip caption bolds,
+so the bot needs no lemmatizer.
 
 - **Contractions are expanded** via an explicit map, because NGSL's
   highest-frequency entries are exactly the words hiding inside them (`don't`
@@ -354,131 +398,158 @@ vocabulary is closed and known at build time.
   they carry the irregular tables that matter here (`went`→`go`, `mice`→`mouse`,
   `better`→`good`) which suffix stripping would miss.
 
-**Failure handling.** Each video is registered and committed **independently**, so
-a run that trips YouTube's bot wall keeps everything already indexed. On a
-bot-wall error the channel is deliberately **stopped** — continuing makes it
-worse. A dead video is marked and skipped. Segments are deduplicated by
-`start_ms` before insert, because two rows sharing a `start_ms` in one statement
-makes Postgres raise "ON CONFLICT DO UPDATE command cannot affect row a second
-time" and would abort the whole video. Occurrences insert in chunks of 500 to
-stay under the parameter limit. Indexing runs in one transaction, so
-`indexed_at` never reports partial state.
+**Failure handling.** Each video is committed **independently**, so a run that
+trips YouTube's bot wall keeps everything already indexed. On a bot-wall error the
+channel is deliberately **stopped** — continuing makes it worse. A dead video is
+marked and skipped. Segments are deduplicated by `start_ms` before insert, because
+two rows sharing a `start_ms` in one statement makes Postgres raise "ON CONFLICT
+DO UPDATE command cannot affect row a second time" and would abort the whole
+video. Occurrences insert in chunks of 500 to stay under the parameter limit.
+Indexing runs in one transaction, so `indexed_at` never reports partial state.
 
 Default inter-video delay: 3,000 ms (`INGEST_REQUEST_DELAY_MS`).
 
-### 8.3 Rendering
+### 8.3 Talking to YouTube
 
-*Source: `packages/media/src/clip.ts`, `apps/worker/src/workers/clip-render.worker.ts`*
+*Source: `packages/media/src/ytdlp.ts`, `packages/queue/src/bot-wall.ts`*
 
-The render window is computed **once**, when the clip row is created, and
-persisted on it. Re-rendering therefore reproduces identical bytes while each
-clip still matches its own sentence length. (v1 got determinism by using a fixed
-3s/10s window for everything.)
+- **`--js-runtimes node` on every call.** Current yt-dlp solves YouTube's player
+  challenges in JavaScript and enables only Deno by default. The images ship
+  Node, so without the flag formats go missing.
+- **Cookies are copied to a private, writable file** once per process. The real
+  jar is mounted read-only, and yt-dlp writes the jar back on exit: pointed at
+  the mount, every call crashed with `EROFS`. The copy also keeps the cookies
+  YouTube rotates during the process's life.
+- **Bot-wall detection** covers "confirm you're not a bot", HTTP 429 and "the
+  current session has been rate-limited".
+- **The bot-wall circuit breaker.** The first render job that meets the wall sets
+  a Redis key for `BOT_WALL_PAUSE_MIN` = 90 minutes, and every render job checks
+  it before starting and waits the pause out without spending a retry. It lives
+  in Redis, not memory, so a restart cannot quietly resume the hammering.
 
-Window: `CLIP_LEAD_SEC` = 3 lead, `CLIP_MAX_SEC` = 14 max length, 500 ms tail so
-the last word is not cut mid-syllable, 2,000 ms floor so a very short sentence is
-still watchable.
+### 8.4 Rendering a video
 
-- `--download-sections` issues ranged requests for **only the bytes in the
-  window**. This is what makes pre-warming thousands of clips affordable.
-- Capped at **480p**: these are ~10-second clips on a phone, and height dominates
-  both render time and upload size.
-- `--force-keyframes-at-cuts` re-encodes the section. Stream-copying would snap
-  to keyframes and drift the window by seconds, which is fatal at this length.
-- Render timeout 300,000 ms. Temp directories are removed in `finally`, so a
-  failure mid-upload cannot leak disk.
+*Source: `apps/worker/src/workers/video-render.worker.ts`, `packages/media/src/{render,cut,align}.ts`, `services/aligner/app.py`*
 
-**Concurrency defaults to 1**, and the queue is rate-limited to
-`PREWARM_RENDER_BUDGET` = 120 renders per hour. That budget is the stated number
-of times per hour the system is willing to expose itself to YouTube.
+One job per source video:
 
-The job re-checks for an existing `telegram_file_id` before rendering, because a
-sweep and a live request can both ask for the same clip and a retried job may run
-after a successful upload.
+1. **Plan.** `renderPlan` picks the video's sentences worth cutting: complete,
+   not yet cut, and not rejected by alignment. Sentences holding a word a learner
+   is waiting on come first, then those helping the most words still below
+   `PREWARM_DEPTH_TARGET`, then by quality. At most
+   `RENDER_MAX_CLIPS_PER_VIDEO` = 60 per video. An empty plan marks the video
+   rendered without downloading anything.
+2. **Download once**, at most `CLIP_MAX_HEIGHT` = 480 pixels tall, choosing the
+   **smallest file** at that height (`-S res:480,+size`). Every clip is
+   re-encoded, so the source codec does not matter, and VP9 or AV1 is often half
+   the size of H.264; the download is the slow, YouTube-facing step.
+3. **Analyse the audio in one pass:** integrated loudness (EBU R128) and every
+   pause (`silencedetect`, −35 dB, 150 ms).
+4. **Forced alignment** (optional sidecar, `ALIGNER_URL`). The sentence text is
+   aligned against its audio, with one second of context on each side, by a
+   wav2vec2 CTC model; the result is when every word is really spoken, and a
+   confidence score. Stored on the segment (`aligned_start_ms`,
+   `aligned_end_ms`, `align_score`, `word_timings`), so a later render of the same
+   video never re-aligns. A sentence whose first or last word cannot be aligned
+   (a number, say) is left unaligned rather than guessed. A sentence scoring below
+   `ALIGN_MIN_SCORE` = 0.35 is treated as text that does not match the audio, and
+   is never cut. If the aligner is down, the job logs it and falls back.
+5. **Cut window** (`cutWindow`):
+   - aligned: from `CLIP_PAD_BEFORE_MS` = 250 before the first word to
+     `CLIP_PAD_AFTER_MS` = 400 after the last, but never further than **halfway
+     to the neighbouring sentence's words**, so a fast speaker's previous word
+     never leaks in;
+   - unaligned: the subtitle timing snapped into the nearest pauses within
+     700 ms, the padding taken from inside the pause (`snapToSilence`).
+   A sentence whose clip would exceed `CLIP_MAX_SEC` = 20 is **skipped, never
+   truncated**. Before 3.0.0 every clip started 3 seconds early, and any sentence
+   longer than about 11 seconds was cut off before its end.
+6. **Encode** (`cutClip`): input-seeking with a re-encode, which is
+   frame-accurate; H.264 `veryfast` CRF 26; audio at one per-video gain towards
+   −16 LUFS (clamped to ±15 dB, measured over the whole talk because a per-clip
+   normaliser pumps on short sentences), a limiter, and 40/60 ms fades so neither
+   edge clicks; `+faststart` so Telegram starts playback before the file has
+   loaded. A thumbnail is taken a third of the way in.
+7. **Upload** with `supports_streaming`, width, height, duration and the
+   thumbnail, spaced 4 s apart because a bot may post about 20 messages a
+   minute into one group (often shared with the monitor's topics), and waiting
+   out any 429. Each clip's `file_id` is saved
+   as soon as it is minted, so a job that dies halfway keeps its clips.
 
-If the source is permanently unusable (dead or DRM), the video is disabled rather
-than retried forever — **but every already-minted `file_id` is left intact**,
-because those clips still play.
+**Pacing.** Worker concurrency 1; the queue is limited to
+`RENDER_VIDEOS_PER_HOUR` = 12 downloads an hour, which is the whole exposure to
+YouTube's bot wall. A permanently unusable source (dead, DRM) is retired
+(`status = 'dead'`, `media_status = 'failed'`); clips already minted from it keep
+playing.
 
-### 8.4 Pre-warming
+### 8.5 Pre-warming
 
-*Source: `packages/queue/src/clip-render.queue.ts`*
+*Source: `packages/queue/src/video-render.queue.ts`, `packages/db/src/repositories/clips.repo.ts` (`videosToRender`, `videosForWord`)*
 
-**Breadth** brings every word up to a floor of rendered clips
-(`PREWARM_BREADTH_TARGET` = 10), so no learner meets a word with nothing to show.
-Runs every 30 minutes.
+**Breadth** brings every word up to a floor of clips (`PREWARM_BREADTH_TARGET` =
+10) and runs every 30 minutes; **depth** grows pools towards
+`PREWARM_DEPTH_TARGET` = 30 and runs nightly.
 
-**Depth** grows pools further (`PREWARM_DEPTH_TARGET` = 30), so "five different
-clips on every review" keeps holding for words people actually study. Runs
-nightly.
+**Videos are chosen by marginal gain:** the number of words still below target
+that the video's eligible sentences would help. One download yields many clips,
+so this greedy choice is what fills breadth fastest per YouTube request. A sweep
+enqueues about an hour's worth (`RENDER_VIDEOS_PER_HOUR`); the worker's limiter
+paces the actual downloads.
 
-Breadth runs first: a word with zero clips is broken, a word with ten is merely
-less varied. Candidates are sorted **neediest first**, so a truncated run still
-fixes the worst gaps. The backlog query orders by id so a truncated sweep resumes
-where the last one stopped; without it the limit fell on heap order and two
-identical sweeps enqueued different work.
+**Just-in-time.** The moment a session picks its words, or a learner taps
+"watch" on a word with no clips, the best two unrendered videos containing each
+word below breadth are enqueued at session priority, with the word marked as
+*focus* so its sentences are cut and uploaded before anything else in those
+videos. Failures are logged, never surfaced: a missing clip degrades a card, it
+does not break a session.
 
-**Just-in-time pre-warm.** The moment a session picks its words, their renders
-are enqueued at session priority — before any card is rendered, so there is a real
-head start. Failures are logged, never surfaced: a missing clip degrades a card,
-it does not break a session.
+**Deduplication.** Job ids are `video-<id>` (a hyphen: BullMQ rejects `:`), so a
+video is never downloaded twice however many sweeps or learners ask. BullMQ
+discards the new options and data of a duplicate, so the code does both by hand:
+it merges the new focus words into the queued job and raises (never lowers) its
+priority, reading `job.priority` rather than the stale `job.opts.priority`.
+Active jobs are left alone.
 
-Two sharp edges documented in the code:
+### 8.6 Serving clips to a user
 
-1. **Priority is silently dropped on deduplication.** BullMQ dedupes by job id
-   and, when the id exists, returns the existing job and discards the new
-   options including priority. A learner asking for a word already sitting in the
-   pre-warm backlog would inherit that job's low priority and wait behind the
-   whole sweep. Priority is therefore promoted **explicitly**, reading
-   `job.priority` (not `job.opts.priority`, which `changePriority` leaves stale),
-   and **only ever raised, never lowered**, so a sweep cannot demote a clip a
-   live request already promoted. Active jobs are skipped because
-   `changePriority` throws on them.
-2. **Scoped vs unscoped backlog.** The just-in-time path must use the
-   *per-word* backlog query. Using the unscoped one queued a handful of unrelated
-   words at session priority while the word the learner actually tapped stayed
-   unrendered, so the reply never stopped saying "being prepared".
+*Source: `apps/bot/src/handlers/clips.ts`, `apps/bot/src/highlight.ts`, `packages/db/src/repositories/clips.repo.ts`*
 
-Job ids use a hyphen (`clip-<id>`), not a colon, because BullMQ rejects custom
-job ids containing `:`.
+**One video at a time, YouGlish-style.** A deck of up to 30 clips opens with the
+first; ⏮/⏭ swap the video inside the same message (`editMessageMedia`) and wrap
+around. Everything is a cached `file_id`, so each tap is instant.
 
-### 8.5 Serving clips to a user
+**Deck order is fixed when it opens** and kept in the session: never-seen clips
+first, and within them the first clip of every video before any video's second
+(`row_number() partition by video`, ranked by net votes then quality), so paging
+moves between speakers. Seen clips follow, least recently seen first: a repeat
+beats an empty screen. Arrows on an older message rebuild a word's deck; an old
+search cannot be rebuilt from the callback, so the learner is asked to search
+again.
 
-*Source: `apps/bot/src/handlers/clips.ts`, `packages/db/src/repositories/clips.repo.ts`*
+**Caption:** the lemma or search as a header, the sentence with the target word
+**bolded** (the stored surface forms for a word deck; Postgres `ts_headline` for
+a search), the channel, and the position in the deck. Buttons: 👍/👎, and
+**▶️ YouTube**, a link to the same moment in the full video.
 
-Five clips per tap (`CLIPS_PER_REQUEST = 5`).
+**Seen is recorded only after Telegram accepts the clip**, so a failed send never
+burns one. A clip whose `file_id` fails is dropped from the deck and the next one
+tried, up to three times.
 
-**A learner never sees the same clip twice.** A per-user `user_clip_seen` ledger
-makes this an anti-join: five fresh clips on learning, five *different* ones on
-every review. v1's embedded-array model had no stable clip identity and could not
-express this at all.
+**Votes.** One vote per learner per clip (re-voting replaces it). With at least
+five votes, a clip two-thirds disliked is taken out of rotation.
 
-**Speaker diversity.** Selection is ranked with `row_number() partition by video`,
-so the batch spans five different videos rather than five consecutive lines from
-one talk. The same partitioning is applied when clip rows are first materialised:
-each video's best occurrence is taken before any video's second, because ordering
-by raw quality alone packed the pool with consecutive lines from whichever single
-talk scored highest, leaving the serving query nothing to diversify across.
+**Search.** 🔎 in the menu, `/search`, or simply typing an English word or phrase
+(letters only, at most six words). An exact NGSL lemma opens that word's deck;
+anything else, or a word with no clips of its own yet, is a phrase search
+(`phraseto_tsquery`, word order kept) over every rendered sentence, backed by a
+GIN full-text index. A lemma with nothing rendered is queued for rendering and
+the learner told it is being prepared.
 
-**Pool exhaustion** falls back to least-recently-seen clips, and the user is told.
-Showing a repeat beats showing nothing.
-
-**A deliberate non-filter:** the serving query does **not** filter on source video
-status. A rendered clip is a self-contained file on Telegram's CDN; the source
-being removed from YouTube does not affect playback. Excluding these would
-discard the vault's whole anti-fragile payoff — the library is meant to outlive
-its sources. (The *render backlog* query does filter on `status = 'live'`, because
-a dead source cannot produce new clips.)
-
-**Clips are marked seen only after a successful send**, so a failure does not burn
-clips the learner never watched. Marking is idempotent.
-
-The five videos are sent as one media group. If a stale `file_id` fails the whole
-group, it falls back to sending individually, so one bad clip cannot cost the user
-the other four.
-
-If nothing is rendered yet, the word is pushed to the front of the render queue
-and the user is told it is being prepared, rather than shown an empty reply.
+**A deliberate non-filter:** serving does **not** filter on source video status.
+A rendered clip is a self-contained file on Telegram's CDN; the source being
+removed from YouTube does not affect playback. The library is meant to outlive
+its sources. (Planning *does* filter on `status = 'live'`, because a dead source
+cannot produce new clips.)
 
 ---
 

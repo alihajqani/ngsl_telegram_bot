@@ -12,11 +12,13 @@ same clip twice" a join rather than an impossibility.
 ## Layout
 
 ```
-apps/bot        grammY long-polling process — handlers only, kept thin
-apps/worker     BullMQ consumers: corpus ingest, clip render, notify, llm
-packages/core   Pure domain — Leitner, progress, streaks. Zero I/O. Fully tested
-packages/db     Drizzle schema, migrations, repositories
-packages/shared Zod-validated config, structured logging
+apps/bot          grammY long-polling process — handlers only, kept thin
+apps/worker       BullMQ consumers: video render, scheduled jobs
+packages/core     Pure domain — Leitner, progress, streaks. Zero I/O. Fully tested
+packages/db       Drizzle schema, migrations, repositories
+packages/media    Corpus ingest, segmentation, cutting and encoding clips
+packages/shared   Zod-validated config, structured logging
+services/aligner  Python sidecar: wav2vec2 forced alignment for clean cuts
 ```
 
 The dependency direction is enforced by `eslint-plugin-boundaries`, not by
@@ -29,7 +31,7 @@ Drizzle. v1 had the same rule written in prose and broke it in 11 files.
 
 ```bash
 cp .env.example .env          # fill in BOT_TOKEN, GEMINI_API_KEYS, POSTGRES_PASSWORD, REDIS_PASSWORD…
-docker compose up -d --build  # postgres, redis, bot, worker
+docker compose up -d --build  # postgres, redis, bot, worker, aligner
 docker compose logs -f bot worker
 ```
 
@@ -54,7 +56,8 @@ pnpm dev:bot                  # and, in another shell: pnpm dev:worker
 
 Requires Node 22+, pnpm 11, and `yt-dlp` + `ffmpeg` on PATH for the media pipeline.
 The container images supply those two binaries themselves — and only to the
-worker, since the bot never touches media.
+worker, since the bot never touches media. The aligner is optional: without it,
+cuts fall back to subtitle timing snapped to the nearest pause.
 
 ### Images
 
@@ -81,7 +84,8 @@ Release history and upgrade steps are in [CHANGELOG.md](CHANGELOG.md).
 | `pnpm db:push` | Apply the schema directly (development) |
 | `pnpm db:seed` | Seed `word` from `data/ngsl.csv`; idempotent. `--dry-run` validates the CSV only |
 | `pnpm db:week-saturday` | One-off 2.1.0 upgrade: move stored leagues from Monday to Saturday weeks; idempotent |
-| `pnpm ingest` | Ingest the corpus. `--list`, `--channel=<slug>`, `--limit=<n>`, `--delay=<ms>` |
+| `pnpm ingest` | Ingest the corpus. `--list`, `--channel=<slug>`, `--limit=<n>`, `--delay=<ms>`, `--refresh` |
+| `pnpm prewarm` | Queue video renders now. `--status` reports clip coverage, `--depth` targets the depth pool |
 | `pnpm db:studio` | Browse the database |
 
 ## The corpus
@@ -112,6 +116,28 @@ clip is a whole thought rather than the fragment a caption line happens to end
 on. Each segment is then resolved against the closed NGSL vocabulary and written
 to `word_occurrence` — a precomputed posting list, which is why serving a word
 needs no search engine.
+
+A channel's feed is read once and cached, and each video's raw subtitles are
+stored, so repeat runs never page through YouTube again. Inside the containers,
+run the CLIs through the worker, which has yt-dlp, ffmpeg and the cookies:
+
+```bash
+docker compose exec worker node packages/media/dist/cli.js --channel=ted --limit=25
+docker compose exec worker node apps/worker/dist/prewarm-cli.js --status
+```
+
+## Clips
+
+Rendering is one job per **source video**: download it once, find where every
+sentence is really spoken (forced alignment in `services/aligner`), cut each
+sentence locally with ffmpeg, and upload it once to the vault topic, whose
+`file_id` is then reused forever. A clip belongs to a sentence, so it serves
+every NGSL word in it. The only YouTube-facing step is the download, paced at
+`RENDER_VIDEOS_PER_HOUR`; if YouTube shows its bot wall, every render pauses for
+`BOT_WALL_PAUSE_MIN`. Details in [BUSINESS_LOGIC.md](BUSINESS_LOGIC.md) §8.
+
+In the bot, clips play one at a time with ⏮/⏭, the word in bold, 👍/👎 and a link
+to the moment on YouTube. Typing any English word or phrase searches them.
 
 ## Security
 
