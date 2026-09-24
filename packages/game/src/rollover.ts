@@ -2,9 +2,9 @@ import { dayKey, nextTier, resolveBuddyDay, resolveLeague, weekStartKey } from '
 import {
   activeBuddyPairs,
   findOrCreateLeague,
-  joinLeague,
   leagueStandings,
   leaguesForWeek,
+  placeInLeague,
   saveBuddyStreak,
   studiedOn,
 } from '@ngsl/db';
@@ -24,9 +24,10 @@ export interface RolloverResult {
 /**
  * Close last week's leagues and seed this week's.
  *
- * Runs on Monday. Every member of a closed cohort is placed into a new league
- * at their new tier, so nobody silently drops out of the competition — the most
- * common way a league system quietly dies.
+ * Runs at 00:00 on Saturday, the moment Friday closes the week. Every member of
+ * a closed cohort is placed into a new league at their new tier, so nobody
+ * silently drops out of the competition — the most common way a league system
+ * quietly dies.
  */
 export async function runLeagueRollover(now: Date = new Date()): Promise<RolloverResult> {
   const timezone = config().app.timezone;
@@ -58,7 +59,7 @@ export async function runLeagueRollover(now: Date = new Date()): Promise<Rollove
     for (const [userIds, tier] of moves) {
       if (userIds.length === 0) continue;
       const target = await findOrCreateLeague(tier, thisWeek);
-      for (const userId of userIds) await joinLeague(target, userId);
+      for (const userId of userIds) await placeInLeague(target, userId, thisWeek);
     }
 
     result.promoted += outcome.promote.length;

@@ -83,6 +83,7 @@ export {
   studiedOn,
   findOrCreateLeague,
   joinLeague,
+  placeInLeague,
   currentMembership,
   addLeaguePoints,
   leagueStandings,

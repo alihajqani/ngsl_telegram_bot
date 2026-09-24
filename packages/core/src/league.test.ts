@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assignCohorts,
+  daysLeftInWeek,
   MAX_TIER,
   nextTier,
   resolveLeague,
@@ -104,12 +105,25 @@ describe('tierName', () => {
 });
 
 describe('weekStartKey', () => {
-  it('returns the Monday of that week', () => {
-    // 2026-08-10 is a Monday.
-    expect(weekStartKey('2026-08-10')).toBe('2026-08-10');
-    expect(weekStartKey('2026-08-14')).toBe('2026-08-10');
-    expect(weekStartKey('2026-08-16')).toBe('2026-08-10'); // Sunday belongs to the week just ended
-    expect(weekStartKey('2026-08-17')).toBe('2026-08-17');
+  it('returns the Saturday of that week', () => {
+    // 2026-08-08 is a Saturday.
+    expect(weekStartKey('2026-08-08')).toBe('2026-08-08');
+    expect(weekStartKey('2026-08-10')).toBe('2026-08-08'); // Monday is mid-week
+    expect(weekStartKey('2026-08-14')).toBe('2026-08-08'); // Friday closes the week
+    expect(weekStartKey('2026-08-15')).toBe('2026-08-15');
+  });
+
+  it('crosses month and year boundaries', () => {
+    // 2027-01-01 is a Friday, so its week began in December.
+    expect(weekStartKey('2027-01-01')).toBe('2026-12-26');
+  });
+});
+
+describe('daysLeftInWeek', () => {
+  it('counts today, so Saturday has the whole week and Friday is the last day', () => {
+    expect(daysLeftInWeek('2026-08-08')).toBe(7);
+    expect(daysLeftInWeek('2026-08-10')).toBe(5);
+    expect(daysLeftInWeek('2026-08-14')).toBe(1);
   });
 });
 

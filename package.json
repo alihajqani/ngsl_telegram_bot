@@ -19,6 +19,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx packages/db/src/seed/index.ts",
+    "db:week-saturday": "tsx packages/db/src/maintenance/migrate-week-start.ts",
     "ingest": "tsx packages/media/src/cli.ts",
     "worker": "tsx apps/worker/src/index.ts",
     "prewarm": "tsx apps/worker/src/prewarm-cli.ts",

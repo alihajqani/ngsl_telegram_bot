@@ -1,5 +1,5 @@
 import type { PointReason, StreakState } from '@ngsl/core';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { db, type Database } from '../client.js';
 import {
   appUser,
@@ -92,6 +92,7 @@ export async function globalRank(
   return row;
 }
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Streaks
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,6 +183,57 @@ export async function joinLeague(
     .insert(leagueMembership)
     .values({ leagueId, userId, points: 0 })
     .onConflictDoNothing();
+}
+
+/**
+ * Seat a learner in `leagueId` as their only league for `weekStart`.
+ *
+ * Someone who studies after midnight on Saturday but before the rollover runs is
+ * lazily seeded into the bottom tier first. Joining the rollover's league as
+ * well would leave them in two cohorts, and every later rollover would carry
+ * both forward. Any other membership that week is folded into this one, points
+ * included. Re-running is harmless: with nothing to fold, it adds zero.
+ */
+export async function placeInLeague(
+  leagueId: number,
+  userId: number,
+  weekStart: string,
+  database: Database = db(),
+): Promise<void> {
+  await database.transaction(async (tx) => {
+    const strays = await tx
+      .select({ leagueId: leagueMembership.leagueId, points: leagueMembership.points })
+      .from(leagueMembership)
+      .innerJoin(league, eq(league.id, leagueMembership.leagueId))
+      .where(
+        and(
+          eq(leagueMembership.userId, userId),
+          eq(league.weekStart, weekStart),
+          ne(leagueMembership.leagueId, leagueId),
+        ),
+      );
+
+    const carried = strays.reduce((sum, s) => sum + s.points, 0);
+    if (strays.length > 0) {
+      await tx.delete(leagueMembership).where(
+        and(
+          eq(leagueMembership.userId, userId),
+          inArray(
+            leagueMembership.leagueId,
+            strays.map((s) => s.leagueId),
+          ),
+        ),
+      );
+    }
+
+    await tx
+      .insert(leagueMembership)
+      .values({ leagueId, userId, points: carried })
+      .onConflictDoUpdate({
+        target: [leagueMembership.leagueId, leagueMembership.userId],
+        set: { points: sql`${leagueMembership.points} + ${carried}` },
+      });
+  });
 }
 
 /** A user's current-week membership, if any. */

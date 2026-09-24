@@ -103,11 +103,25 @@ export function nextTier(tier: number, direction: 'promote' | 'demote'): number 
     : Math.max(MIN_TIER, tier - 1);
 }
 
-/** The Monday of the week containing `dayKey`, as a 'YYYY-MM-DD' key. */
+/** Days since the Saturday that opens the week: Saturday 0 … Friday 6. */
+function dayOfWeek(dayKey: string): number {
+  // getUTCDay: 0 = Sunday … 6 = Saturday, so shift by one to start on Saturday.
+  return (new Date(`${dayKey}T00:00:00Z`).getUTCDay() + 1) % 7;
+}
+
+/**
+ * The Saturday of the week containing `dayKey`, as a 'YYYY-MM-DD' key.
+ *
+ * Weeks follow the Iranian calendar: Saturday opens the week and Friday, the
+ * weekend, closes it.
+ */
 export function weekStartKey(dayKey: string): string {
   const date = new Date(`${dayKey}T00:00:00Z`);
-  // getUTCDay: 0 = Sunday, so Monday-based offset needs the wrap.
-  const offset = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - offset);
+  date.setUTCDate(date.getUTCDate() - dayOfWeek(dayKey));
   return date.toISOString().slice(0, 10);
+}
+
+/** Days left in the league week, today included: 7 on Saturday, 1 on Friday. */
+export function daysLeftInWeek(dayKey: string): number {
+  return 7 - dayOfWeek(dayKey);
 }

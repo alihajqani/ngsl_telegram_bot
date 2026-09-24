@@ -93,7 +93,7 @@ async function grant(
 /**
  * Place a learner in this week's bottom-tier league on first activity.
  *
- * Joining lazily rather than by a Monday sweep means a user who signs up
+ * Joining lazily rather than by a Saturday sweep means a user who signs up
  * mid-week competes immediately instead of waiting six days to be seeded.
  */
 export async function ensureLeagueMembership(

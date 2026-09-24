@@ -25,7 +25,8 @@ const SCHEDULES: { name: string; cron: string }[] = [
   { name: 'reminders.peak', cron: '0 * * * *' },
   { name: 'motivation.daily', cron: '0 6 * * *' },
   { name: 'buddy.reconcile', cron: '30 0 * * *' },
-  { name: 'league.rollover', cron: '0 1 * * 1' },
+  // Saturday 00:00: Friday closes the league week.
+  { name: 'league.rollover', cron: '0 0 * * 6' },
   { name: 'health.sync', cron: '0 3 * * 0' },
   { name: 'prewarm.breadth', cron: '*/30 * * * *' },
   { name: 'prewarm.depth', cron: '10 2 * * *' },

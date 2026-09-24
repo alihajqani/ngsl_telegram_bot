@@ -20,6 +20,14 @@
 Newest first. Record the commit whose behaviour the document now describes, not
 the commit that edited the document.
 
+### 2026-09-24 — describes `v2.1.0`
+
+- League weeks start on **Saturday** and close on Friday; the rollover moved from
+  Monday 01:00 to Saturday 00:00 (§11.4, §13).
+- The rollover folds a lazily seeded bottom-tier membership into the learner's
+  real league, so nobody holds two leagues in one week (§11.4).
+- One-off `pnpm db:week-saturday` moves stored Monday-keyed leagues (§11.4).
+
 ### 2026-09-24 — describes `bfb3958`
 
 - Initial extraction. Full pass over `apps/bot`, `apps/worker`, and `packages/{core,game,coach,content,media,queue,db,shared}`.
@@ -628,7 +636,7 @@ not yet today — the nudge window), `broken`.
 
 ### 11.4 Weekly leagues
 
-*Source: `packages/core/src/league.ts`, `packages/game/src/rollover.ts`*
+*Source: `packages/core/src/league.ts`, `packages/game/src/rollover.ts`, `packages/db/src/repositories/game.repo.ts` (`placeInLeague`)*
 
 Rationale in the code: a single global leaderboard demotivates the ~90% who will
 never approach the top — "rank 4,120 of 5,000" is a reason to quit.
@@ -650,10 +658,29 @@ Guards:
   of the competition as the most common way a league system quietly dies.
 
 **Lazy membership.** A learner is seeded into the current week's bottom-tier
-league on first activity, not by a Monday sweep, so someone who signs up mid-week
+league on first activity, not by a Saturday sweep, so someone who signs up mid-week
 competes immediately instead of waiting six days.
 
-Weeks are Monday-based (`weekStartKey`).
+**Weeks follow the Iranian calendar:** Saturday opens the week and Friday closes
+it (`weekStartKey` returns the Saturday; `daysLeftInWeek` counts today, so 7 on
+Saturday and 1 on Friday). The rollover runs at **Saturday 00:00**, the moment
+Friday ends.
+
+**One league per learner per week.** Someone who studies after midnight but
+before the rollover has run is lazily seeded into the bottom tier first. The
+rollover places learners with `placeInLeague`, which folds any other membership
+of that week into the one it assigns, points included. Without it the learner
+would sit in two cohorts, and every later rollover would carry both forward.
+Re-running the rollover is a no-op.
+
+**Switching from Monday weeks (2.1.0).** Leagues stored before 2.1.0 are keyed by
+their Monday and are invisible to the Saturday-based code. `pnpm
+db:week-saturday` rewrites them once: a finished week moves to the Saturday before
+its Monday; the running week moves to the Saturday week that contains today
+(which, on a Saturday or Sunday switch-over, is the week that has just begun, so
+that league runs until the next rollover). Its members are then re-seated with
+`placeInLeague`. The script only touches Monday-keyed rows, so a second run does
+nothing.
 
 An all-time global board also exists, and is deliberately secondary to the league.
 
@@ -732,7 +759,7 @@ next interaction.
 | `reminders.peak` | `0 * * * *` |
 | `motivation.daily` | `0 6 * * *` |
 | `buddy.reconcile` | `30 0 * * *` |
-| `league.rollover` | `0 1 * * 1` |
+| `league.rollover` | `0 0 * * 6` |
 | `health.sync` | `0 3 * * 0` |
 | `prewarm.breadth` | `*/30 * * * *` |
 | `prewarm.depth` | `10 2 * * *` |

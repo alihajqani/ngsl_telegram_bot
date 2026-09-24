@@ -478,7 +478,7 @@ export const league = pgTable(
   {
     id: serial('id').primaryKey(),
     tier: smallint('tier').notNull(),
-    /** Monday (Tehran) that this cohort covers. */
+    /** Saturday (Tehran) that opens the week this cohort covers. */
     weekStart: date('week_start', { mode: 'string' }).notNull(),
     createdAt: createdAt(),
   },
