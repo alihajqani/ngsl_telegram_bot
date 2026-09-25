@@ -69,8 +69,10 @@ export interface ClipDeck {
  * through the deck moves between speakers instead of walking one talk. Seen
  * clips follow, least recently seen first: a repeat beats an empty screen.
  *
- * The learner's accent setting filters by channel, and among the unseen clips
- * their own accent's channels come before the mixed ones.
+ * The learner's accent setting filters by channel. Within each round of one
+ * clip per video, their own accent's channels come before the mixed ones; it
+ * never outranks the round, or a word with one video in the learner's accent
+ * would show that whole talk first.
  *
  * Not filtered on `video.status`: a rendered clip is a file in Telegram's CDN,
  * and a source removed from YouTube does not stop it playing.
@@ -106,8 +108,8 @@ export async function clipDeckForWord(
            and ${accentFilter(accent)}
       ) ranked
      order by (seen_at is not null),
-              case when seen_at is null then accent_rank end,
               case when seen_at is null then rn end,
+              case when seen_at is null then accent_rank end,
               seen_at,
               net desc,
               quality desc,
@@ -121,7 +123,8 @@ export async function clipDeckForWord(
 /**
  * Free-text search over every rendered clip: any word or phrase, YouGlish-style.
  * `phraseto_tsquery` keeps word order, so "look forward to" finds that phrase
- * rather than three scattered words. The accent setting applies as for a word.
+ * rather than three scattered words. The accent setting and the one-clip-per-
+ * video rounds apply as for a word.
  */
 export async function clipDeckForQuery(
   userId: number,
@@ -131,22 +134,35 @@ export async function clipDeckForQuery(
   database: Database = db(),
 ): Promise<ClipDeck> {
   const rows = await database.execute<Row<{ segmentId: number; seen: boolean }>>(sql`
-    select s.id as "segmentId", us.seen_at is not null as seen
-      from ${segment} s
-      join ${segmentMedia} m on m.segment_id = s.id
-      join ${video} v on v.id = s.video_id
-      join ${channel} c on c.id = v.channel_id
-      left join ${userSegmentSeen} us on us.segment_id = s.id and us.user_id = ${userId}
-     where to_tsvector('english', s.text) @@ phraseto_tsquery('english', ${query})
-       and s.active
-       and not m.disabled
-       and ${accentFilter(accent)}
-     order by (us.seen_at is not null),
-              case when us.seen_at is null then ${accentRank(accent)} end,
-              us.seen_at,
-              ts_rank(to_tsvector('english', s.text), phraseto_tsquery('english', ${query})) desc,
-              (m.likes - m.dislikes) desc,
-              s.id
+    select segment_id as "segmentId", seen_at is not null as seen
+      from (
+        select s.id as segment_id,
+               us.seen_at,
+               ${accentRank(accent)} as accent_rank,
+               ts_rank(to_tsvector('english', s.text), phraseto_tsquery('english', ${query})) as rank,
+               (m.likes - m.dislikes) as net,
+               row_number() over (
+                 partition by s.video_id, (us.seen_at is null)
+                 order by ts_rank(to_tsvector('english', s.text), phraseto_tsquery('english', ${query})) desc,
+                          (m.likes - m.dislikes) desc, s.id
+               ) as rn
+          from ${segment} s
+          join ${segmentMedia} m on m.segment_id = s.id
+          join ${video} v on v.id = s.video_id
+          join ${channel} c on c.id = v.channel_id
+          left join ${userSegmentSeen} us on us.segment_id = s.id and us.user_id = ${userId}
+         where to_tsvector('english', s.text) @@ phraseto_tsquery('english', ${query})
+           and s.active
+           and not m.disabled
+           and ${accentFilter(accent)}
+      ) ranked
+     order by (seen_at is not null),
+              case when seen_at is null then rn end,
+              case when seen_at is null then accent_rank end,
+              seen_at,
+              rank desc,
+              net desc,
+              segment_id
      limit ${limit}
   `);
   const list = [...rows];
@@ -277,41 +293,57 @@ export async function voteSegment(
 // Coverage and render planning
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** How many enabled clips each word has: `word_id → count`. */
+/**
+ * The accent every learner starts with. Coverage is measured for it, so the
+ * planner fills what most learners are actually served.
+ */
+const DEFAULT_ACCENT: ClipAccent = 'us';
+
+/**
+ * Coverage is counted in **distinct videos**, not clips. A talk that says
+ * "both" six times yields six clips in one render; counted as clips, that
+ * looked like good coverage and no other video was ever planned for the word,
+ * so its whole deck was one speaker. Only videos the default accent is served
+ * count, since clips a learner never sees cover nothing for them.
+ */
 const coveredCte = sql`
   covered as (
-    select o.word_id, count(*)::int as n
+    select o.word_id, count(distinct s.video_id)::int as n
       from ${wordOccurrence} o
       join ${segmentMedia} m on m.segment_id = o.segment_id and not m.disabled
+      join ${segment} s on s.id = o.segment_id
+      join ${video} v on v.id = s.video_id
+      join ${channel} c on c.id = v.channel_id
+     where ${accentFilter(DEFAULT_ACCENT)}
      group by o.word_id
   )`;
 
 export interface WordClipCoverage {
   wordId: number;
-  rendered: number;
+  /** Distinct source videos with a clip of the word (see `coveredCte`). */
+  videos: number;
 }
 
-/** Rendered clips for just these words — the cheap check on a session's hot path. */
-export async function clipCountsFor(
+/** Coverage for just these words — the cheap check on a session's hot path. */
+export async function videoCountsFor(
   wordIds: readonly number[],
   database: Database = db(),
 ): Promise<Map<number, number>> {
   if (wordIds.length === 0) return new Map();
   const rows = await database.execute<Row<WordClipCoverage>>(sql`
-    select o.word_id as "wordId", count(*)::int as rendered
-      from ${wordOccurrence} o
-      join ${segmentMedia} m on m.segment_id = o.segment_id and not m.disabled
-     where o.word_id = any(${idArray(wordIds, 'int')})
-     group by o.word_id
+    with ${coveredCte}
+    select word_id as "wordId", n as videos
+      from covered
+     where word_id = any(${idArray(wordIds, 'int')})
   `);
-  return new Map([...rows].map((r) => [r.wordId, r.rendered]));
+  return new Map([...rows].map((r) => [r.wordId, r.videos]));
 }
 
-/** Rendered clips per word — drives the pre-warm sweep and `pnpm prewarm --status`. */
+/** Coverage per word — drives the pre-warm sweep and `pnpm prewarm --status`. */
 export async function wordCoverage(database: Database = db()): Promise<WordClipCoverage[]> {
   const rows = await database.execute<Row<WordClipCoverage>>(sql`
     with ${coveredCte}
-    select w.id as "wordId", coalesce(c.n, 0)::int as rendered
+    select w.id as "wordId", coalesce(c.n, 0)::int as videos
       from word w
       left join covered c on c.word_id = w.id
   `);
@@ -347,7 +379,8 @@ export interface VideoToRender {
  *
  * One download yields many clips, so the choice is by marginal gain: the
  * number of words still below `target` that the video can help. Greedy, but it
- * is what makes breadth fill fastest per YouTube request.
+ * is what makes breadth fill fastest per YouTube request. Channels the default
+ * accent is not served (British) come last: their clips add no coverage.
  */
 export async function videosToRender(
   target: number,
@@ -367,18 +400,22 @@ export async function videosToRender(
       join ${wordOccurrence} o on o.word_id = n.word_id
       join ${segment} s on s.id = o.segment_id
       join ${video} v on v.id = s.video_id
+      join ${channel} c on c.id = v.channel_id
      where ${renderable(minScore)}
        and v.status = 'live'
        and v.media_status = 'none'
        and v.indexed_at is not null
      group by v.id
-     order by gain desc, v.id
+     order by bool_and(${accentFilter(DEFAULT_ACCENT)}) desc, gain desc, v.id
      limit ${limit}
   `);
   return [...rows];
 }
 
-/** Unrendered videos holding a good sentence for this word — a learner is waiting on it. */
+/**
+ * Unrendered videos holding a good sentence for this word — a learner is
+ * waiting on it. As in `videosToRender`, British channels come last.
+ */
 export async function videosForWord(
   wordId: number,
   limit: number,
@@ -390,12 +427,13 @@ export async function videosForWord(
       from ${wordOccurrence} o
       join ${segment} s on s.id = o.segment_id
       join ${video} v on v.id = s.video_id
+      join ${channel} c on c.id = v.channel_id
      where o.word_id = ${wordId}
        and ${renderable(minScore)}
        and v.status = 'live'
        and v.media_status = 'none'
      group by v.id
-     order by max(o.quality_score) desc, v.id
+     order by bool_and(${accentFilter(DEFAULT_ACCENT)}) desc, max(o.quality_score) desc, v.id
      limit ${limit}
   `);
   return [...rows];

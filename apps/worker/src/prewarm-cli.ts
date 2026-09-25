@@ -9,7 +9,7 @@ const log = createLogger('worker.prewarm-cli');
 const USAGE = `
 Usage: pnpm prewarm [--depth] [--status]
 
-  --status  Report clip coverage and exit (no jobs enqueued)
+  --status  Report coverage (videos per word) and exit (no jobs enqueued)
   --depth   Grow pools toward PREWARM_DEPTH_TARGET instead of the breadth floor
 
 Enqueues video render jobs only. Run \`pnpm worker\` to actually process them.
@@ -19,15 +19,15 @@ async function status(): Promise<void> {
   const [coverage, clips] = await Promise.all([wordCoverage(), renderedClipCount()]);
   const { breadthTarget, depthTarget } = config().jobs;
 
-  const withClips = coverage.filter((c) => c.rendered > 0).length;
-  const atBreadth = coverage.filter((c) => c.rendered >= breadthTarget).length;
-  const atDepth = coverage.filter((c) => c.rendered >= depthTarget).length;
+  const withClips = coverage.filter((c) => c.videos > 0).length;
+  const atBreadth = coverage.filter((c) => c.videos >= breadthTarget).length;
+  const atDepth = coverage.filter((c) => c.videos >= depthTarget).length;
 
   console.log(`
   clips rendered       ${clips}
   words with a clip    ${withClips} / ${coverage.length}
-  words at breadth ≥${String(breadthTarget).padEnd(3)} ${atBreadth}
-  words at depth   ≥${String(depthTarget).padEnd(3)} ${atDepth}
+  words at breadth ≥${String(breadthTarget).padEnd(3)} videos ${atBreadth}
+  words at depth   ≥${String(depthTarget).padEnd(3)} videos ${atDepth}
 `);
 }
 

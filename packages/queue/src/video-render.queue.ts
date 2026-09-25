@@ -1,4 +1,4 @@
-import { clipCountsFor, videosForWord, videosToRender, wordCoverage } from '@ngsl/db';
+import { videoCountsFor, videosForWord, videosToRender, wordCoverage } from '@ngsl/db';
 import { config, createLogger } from '@ngsl/shared';
 import { Queue } from 'bullmq';
 import { DEFAULT_JOB_OPTIONS, PRIORITY, QUEUE, redisConnection } from './connection.js';
@@ -94,7 +94,7 @@ export async function prewarmWords(wordIds: readonly number[]): Promise<number> 
 
   const { breadthTarget } = config().jobs;
   const { alignMinScore } = config().media;
-  const covered = await clipCountsFor(wordIds);
+  const covered = await videoCountsFor(wordIds);
 
   let enqueued = 0;
   for (const wordId of wordIds) {
@@ -139,7 +139,7 @@ export async function runPrewarm(stage: PrewarmStage): Promise<PrewarmResult> {
   const target = stage === 'breadth' ? breadthTarget : depthTarget;
 
   const coverage = await wordCoverage();
-  const wordsBelowTarget = coverage.filter((c) => c.rendered < target).length;
+  const wordsBelowTarget = coverage.filter((c) => c.videos < target).length;
 
   const videos = wordsBelowTarget === 0 ? [] : await videosToRender(target, videosPerHour, alignMinScore);
   for (const v of videos) {

@@ -9,7 +9,7 @@ export {
   markSegmentSeen,
   voteSegment,
   wordCoverage,
-  clipCountsFor,
+  videoCountsFor,
   markUnalignable,
   renderedClipCount,
   videosToRender,

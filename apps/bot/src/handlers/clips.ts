@@ -70,6 +70,11 @@ async function openWordDeck(ctx: BotContext, wordId: number, accent: ClipAccent)
     segmentIds: deck.segmentIds,
   };
   await showClip(ctx, 0, 'send');
+  // Someone is watching this word now: if its clips come from too few videos,
+  // queue more. A no-op once the word reaches the breadth floor.
+  void prewarmWords([wordId]).catch((error: unknown) =>
+    log.warn('Deck pre-warm failed', { userId, wordId, error }),
+  );
   await awardQuietly(ctx, 'clip_watched', 1, wordId);
 }
 
