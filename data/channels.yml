@@ -75,6 +75,25 @@ channels:
     order: oldest
     # newest 1/6 (en-US) — low yield, kept at tier 2 to fill gaps
 
+  - slug: obama-white-house
+    name: The Obama White House
+    url: https://www.youtube.com/@ObamaWhiteHouse/videos
+    tier: 1
+    accent: us
+    order: oldest
+    # 2026-09-25: oldest 4/4 manual en (2009 speeches, weekly addresses, the
+    # inaugural), newest 0/1 — official archive, 7,107 uploads
+
+  - slug: barack-obama
+    name: Barack Obama
+    url: https://www.youtube.com/@BarackObama/videos
+    tier: 2
+    accent: us
+    order: oldest
+    # 2026-09-25: 0/12 manual en (newest 0/3, middle 0/5, oldest 0/4 of those
+    # the bot wall let through) — mostly short campaign clips; the speeches
+    # with real subtitles are on obama-white-house
+
   # ── Disabled: measured zero manual English subtitles ─────────────────────────
   # Both were in the approved whitelist but do not survive the "manual subtitles
   # only" requirement. Re-enable if that ever changes.
