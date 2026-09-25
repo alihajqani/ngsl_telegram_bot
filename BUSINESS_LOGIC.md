@@ -20,6 +20,17 @@
 Newest first. Record the commit whose behaviour the document now describes, not
 the commit that edited the document.
 
+### 2026-09-25 — describes `v3.3.0`
+
+- Coverage is counted in distinct videos a default (American) learner is
+  served, not clips; the planner puts British channels last; opening a word's
+  deck pre-warms it (§8.5).
+- Decks go one clip per video per round, and the accent preference only orders
+  clips within a round; searches round-robin by video too (§8.6).
+- After a deploy of a new version the worker tells every learner once, paced
+  and resumable; bulk sends wait out a 429 (§13).
+- Channels `obama-white-house` and `barack-obama` join the whitelist (§8.2).
+
 ### 2026-09-25 — describes `v3.2.0`
 
 - New words come one card at a time, each with a numbered ⏭ button to the next,
@@ -363,7 +374,11 @@ main trigger of the bot wall.
 *Source: `packages/media/src/{ingest,enumerate,subtitles,segment,quality,lexicon}.ts`, `data/channels.yml`*
 
 **Channel whitelist.** Quality is decided once, per channel, rather than per
-search result.
+search result. Each entry in `data/channels.yml` carries a comment with the
+measured share of its videos that have human-authored English subtitles; that
+share, not the channel's fame, decides whether it is worth crawling (the
+Barack Obama campaign channel measured 0 of 12, the Obama White House archive
+4 of 4 among its oldest uploads).
 
 **The feed is read once and cached.** `enumerateChannel` reads a channel's whole
 upload feed with `--flat-playlist` and stores every video with its `feed_index`
@@ -546,19 +561,28 @@ playing.
 
 *Source: `packages/queue/src/video-render.queue.ts`, `packages/db/src/repositories/clips.repo.ts` (`videosToRender`, `videosForWord`)*
 
-**Breadth** brings every word up to a floor of clips (`PREWARM_BREADTH_TARGET` =
-10) and runs every 30 minutes; **depth** grows pools towards
-`PREWARM_DEPTH_TARGET` = 30 and runs nightly.
+**Breadth** brings every word up to a floor (`PREWARM_BREADTH_TARGET` = 10) and
+runs every 30 minutes; **depth** grows pools towards `PREWARM_DEPTH_TARGET` = 30
+and runs nightly.
+
+**Coverage is counted in distinct source videos, not clips** (`coveredCte`). A
+talk that says "both" six times yields six clips in one render; counted as
+clips, that looked well covered, no other video was planned for the word, and
+its whole deck was one speaker. Only videos the default accent is served
+(`us`, `mixed`, unlabelled) count, because clips an American-setting learner
+never sees cover nothing for them. The render plan inside a video uses the same
+measure.
 
 **Videos are chosen by marginal gain:** the number of words still below target
-that the video's eligible sentences would help. One download yields many clips,
+that the video's eligible sentences would help, with British channels last
+(their clips add no coverage). One download yields many clips,
 so this greedy choice is what fills breadth fastest per YouTube request. A sweep
 enqueues about an hour's worth (`RENDER_VIDEOS_PER_HOUR`); the worker's limiter
 paces the actual downloads.
 
-**Just-in-time.** The moment a session picks its words, or a learner taps
-"watch" on a word with no clips, the best two unrendered videos containing each
-word below breadth are enqueued at session priority, with the word marked as
+**Just-in-time.** The moment a session picks its words, or a learner opens a
+word's clips, the best two unrendered videos containing each word below breadth
+(British channels last) are enqueued at session priority, with the word marked as
 *focus* so its sentences are cut and uploaded before anything else in those
 videos. Failures are logged, never surfaced: a missing clip degrades a card, it
 does not break a session.
@@ -583,15 +607,18 @@ around. Everything is a cached `file_id`, so each tap is instant.
 channel counts as mixed. The learner's `clip_accent` setting, **American by
 default**, filters word decks and searches alike: `us` or `uk` keeps that accent's
 channels and the mixed ones and drops the other accent; `any` keeps everything.
-Among unseen clips, the learner's own accent comes before the mixed channels.
+Within each round of one clip per video (below), the learner's own accent comes
+before the mixed channels; it never outranks the round, or a word with a single
+video in the learner's accent would show that whole talk first.
 When a filtered deck is empty but other accents have clips, the learner is told
 so and pointed at 🌐 All in settings, rather than told the clips are being
 prepared.
 
 **Deck order is fixed when it opens** and kept in the session: never-seen clips
-first (the learner's own accent before mixed channels), and within them the first clip of every video before any video's second
-(`row_number() partition by video`, ranked by net votes then quality), so paging
-moves between speakers. Seen clips follow, least recently seen first: a repeat
+first, and within them the first clip of every video before any video's second
+(`row_number() partition by video`, ranked by net votes then quality; the
+learner's own accent first within a round), so paging moves between speakers. A
+search deck is ordered the same way, ranking within a video by text match. Seen clips follow, least recently seen first: a repeat
 beats an empty screen. Arrows on an older message rebuild a word's deck; an old
 search cannot be rebuilt from the callback, so the learner is asked to search
 again.
@@ -1016,6 +1043,30 @@ play indefinitely**; retiring the source only stops it producing *new* clips.
 A **transient** verdict (rate limiting, network blip) says nothing about the
 video, so `health_checked_at` is deliberately left untouched and it is retried
 next sweep. A bot-wall verdict stops the pass.
+
+### Release announcement
+
+*Source: `apps/worker/src/jobs/release-announcement.ts`, `apps/worker/src/jobs/dispatch.ts`*
+
+Not scheduled: it runs when the worker starts. If the version in
+`apps/worker/package.json` differs from the last one announced (Redis
+`ngsl:release:announced`), every learner who has not blocked the bot is told, in
+their locale, which version it is and to tap /start. Telegram keeps the reply
+keyboard a chat last received, so /start is how a learner picks up a changed
+menu.
+
+- **Paced** at one message per 200 ms, five a second, a sixth of Telegram's
+  bulk limit.
+- **Resumable.** Learners are reached in Telegram id order and the last one is
+  recorded (`ngsl:release:<version>:cursor`) after each message, so a worker
+  restarted midway continues instead of messaging anyone twice. Redis runs with
+  AOF, so the record survives a restart.
+- **Once per version.** Restarting the worker on the same version sends nothing.
+- `ENABLE_RELEASE_ANNOUNCEMENT=false` turns it off.
+
+Every bulk send (`deliver`) waits out a `429` for the `retry_after` Telegram
+names and tries once more, rather than dropping the message; a `403`/`400`
+flags the learner as blocked.
 
 ---
 

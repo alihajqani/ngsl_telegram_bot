@@ -9,6 +9,49 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-25
+
+### Added
+
+- **Update announcement.** When the worker starts on a new version, every
+  learner gets one message, in their language, with the version number and a
+  tap-able /start. It is paced at five messages a second, resumes where it
+  stopped if the worker restarts, and is never sent twice for a version.
+  `ENABLE_RELEASE_ANNOUNCEMENT=false` turns it off.
+- **Two channels:** The Obama White House archive (`obama-white-house`, 2009
+  speeches with human-written subtitles) and Barack Obama (`barack-obama`, as
+  asked; measured 0 of 12 videos with human subtitles, so expect little from
+  it).
+
+### Fixed
+
+- **A word's clips could all come from one video** ("both": six clips, one
+  talk). Coverage counted clips, so a talk saying a word six times looked like
+  good coverage and no other video was planned for it. Coverage now counts
+  distinct videos that an American-setting learner is served, British channels
+  are planned last, and opening a word's clips queues more videos when it has
+  too few.
+- The accent ordering added in 3.2.0 put all of a word's American clips ahead
+  of the rest, so a single American talk played through before any other
+  video. Decks again show one clip per video per round, with the learner's
+  accent first within each round. Searches now alternate videos too.
+- A bulk send that hit Telegram's flood control (429) was dropped; it now
+  waits `retry_after` and tries once more.
+
+### Changed
+
+- `PREWARM_BREADTH_TARGET` and `PREWARM_DEPTH_TARGET` now count videos per
+  word, not clips (defaults unchanged, 10 and 30). More words fall below
+  target right after the upgrade, so the sweeps will render more videos for a
+  while, still paced by `RENDER_VIDEOS_PER_HOUR`.
+
+### Upgrade notes
+
+- No schema change.
+- Ingest the new channels once:
+  `docker compose exec worker node packages/media/dist/cli.js --channel=obama-white-house --limit=50`
+  (and `--channel=barack-obama` if wanted).
+
 ## [3.2.0] - 2026-09-25
 
 ### Added
