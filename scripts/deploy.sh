@@ -217,7 +217,8 @@ for service in "${services[@]}"; do
       ;;
     worker)
       grep -q 'Worker ready' <<<"$logs" || warn "the worker has not logged 'Worker ready' yet"
-      audience=$(grep -A3 'Announcing release' <<<"$logs" | sed -nE 's/.*audience: ([0-9]+).*/\1/p' | head -1)
+      # Only a new version is announced, so an empty match is normal here.
+      audience=$(grep -A3 'Announcing release' <<<"$logs" | sed -nE 's/.*audience: ([0-9]+).*/\1/p' | head -1 || true)
       if [[ -n "$audience" ]]; then ok "announcing version $version to $audience learners (five a second)"; fi
       ;;
   esac
