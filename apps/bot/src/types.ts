@@ -13,6 +13,8 @@ export interface SessionData {
   reviewQueue: number[];
   /** How many were answered, for the closing summary. */
   reviewAnswered: number;
+  /** The new-word session in progress, shown one card at a time. */
+  newWordDeck?: NewWordDeckState;
   /** Open writing session, if any. */
   writingSessionId?: number;
   /** Admin is composing a broadcast. */
@@ -28,6 +30,21 @@ export interface SessionData {
   locale?: LocaleCode;
   /** Internal user id, cached for the same reason. */
   userId?: number;
+}
+
+/**
+ * Words join the deck as their cards appear, so the ids still queued here are
+ * not learned yet: abandoning the session costs nothing but those cards.
+ */
+export interface NewWordDeckState {
+  /** Word ids still to show, in order. */
+  queue: number[];
+  /** The word whose card carries the live "next word" button. */
+  current?: number;
+  /** Cards in the whole session, for the `3/20` on the button. */
+  total: number;
+  /** Points earned so far, announced with the last card. */
+  earned: number;
 }
 
 export interface ClipDeckState {

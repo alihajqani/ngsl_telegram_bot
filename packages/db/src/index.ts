@@ -38,6 +38,7 @@ export {
   getMasteredWords,
   countDeck,
   getWordLemma,
+  getWordCard,
   findWordByLemma,
   type WordCard,
   type ReviewCard,

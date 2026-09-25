@@ -136,17 +136,20 @@ export async function selectNewWords(
   }));
 }
 
-/** Introduce words at box 1, due tomorrow. Idempotent if a word is re-issued. */
+/**
+ * Introduce words at box 1, due tomorrow. Idempotent if a word is re-issued.
+ * Returns how many were new to the deck, so a re-issued word earns nothing.
+ */
 export async function addNewWords(
   userId: number,
   wordIds: readonly number[],
   now: Date = new Date(),
   database: Database = db(),
-): Promise<void> {
-  if (wordIds.length === 0) return;
+): Promise<number> {
+  if (wordIds.length === 0) return 0;
   const state = initialState(now);
 
-  await database
+  const inserted = await database
     .insert(userWord)
     .values(
       wordIds.map((wordId) => ({
@@ -157,7 +160,21 @@ export async function addNewWords(
         nextReviewAt: state.nextReviewAt,
       })),
     )
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ wordId: userWord.wordId });
+  return inserted.length;
+}
+
+/** One word's card. New words are shown one at a time, so each is read when its turn comes. */
+export async function getWordCard(
+  wordId: number,
+  database: Database = db(),
+): Promise<WordCard | undefined> {
+  const [row] = await database
+    .select({ wordId: word.id, lemma: word.lemma, definition: word.definition, bucket: word.bucket })
+    .from(word)
+    .where(eq(word.id, wordId));
+  return row;
 }
 
 /** Words due for review, most overdue first. */

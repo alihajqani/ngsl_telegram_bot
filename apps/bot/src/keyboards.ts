@@ -1,4 +1,5 @@
 import { InlineKeyboard, Keyboard } from 'grammy';
+import type { InlineKeyboardButton } from 'grammy/types';
 import { t } from './i18n/i18n.js';
 
 /**
@@ -10,6 +11,8 @@ export const CB = {
   examples: (wordId: number) => `ex:${wordId}`,
   collocations: (wordId: number) => `co:${wordId}`,
   clips: (wordId: number) => `cl:${wordId}`,
+  /** Under the new-word card on screen: show the next one. */
+  nextWord: (wordId: number) => `nx:${wordId}`,
   review: (result: 'c' | 'w' | 'k', wordId: number) => `rv:${result}:${wordId}`,
   checkMembership: 'chk',
   league: 'league',
@@ -29,6 +32,7 @@ export const CB_PATTERN = {
   examples: /^ex:(\d+)$/,
   collocations: /^co:(\d+)$/,
   clips: /^cl:(\d+)$/,
+  nextWord: /^nx:(\d+)$/,
   review: /^rv:([cwk]):(\d+)$/,
   clipNav: /^cv:(w\d+|q):(\d+)$/,
   clipVote: /^vt:(\d+):([ld])$/,
@@ -96,14 +100,33 @@ export function channelPromptKeyboard(channel: string): InlineKeyboard {
     .text(t('channel.checkButton'), CB.checkMembership);
 }
 
-/** Buttons shown under a new-word card: explore, but nothing to answer. */
-export function wordCardKeyboard(wordId: number, lemma: string): InlineKeyboard {
-  return new InlineKeyboard()
+/**
+ * Buttons shown under a new-word card: explore, but nothing to answer. While
+ * the session has more words, the last row leads to the next card, numbered
+ * as `position` of `total`.
+ */
+export function wordCardKeyboard(
+  wordId: number,
+  lemma: string,
+  next?: { position: number; total: number },
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
     .text(t('card.buttons.examples'), CB.examples(wordId))
     .text(t('card.buttons.collocations'), CB.collocations(wordId))
     .row()
     .text(t('card.buttons.clips'), CB.clips(wordId))
     .url(t('card.buttons.dictionary'), dictionaryUrl(lemma));
+  if (next) keyboard.row().text(t('newWords.next', next), CB.nextWord(wordId));
+  return keyboard;
+}
+
+/** A card's buttons once its "next word" button has been used: the rest stay useful. */
+export function withoutNextWord(rows: InlineKeyboardButton[][]): InlineKeyboardButton[][] {
+  return rows
+    .map((row) =>
+      row.filter((b) => !('callback_data' in b && CB_PATTERN.nextWord.test(b.callback_data))),
+    )
+    .filter((row) => row.length > 0);
 }
 
 /** Review card: the same exploration tools, plus the three Leitner answers. */

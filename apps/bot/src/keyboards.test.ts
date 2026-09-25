@@ -8,6 +8,8 @@ import {
   mainMenuKeyboard,
   MENU_LAYOUT,
   menuKeyFor,
+  withoutNextWord,
+  wordCardKeyboard,
   type MenuKey,
 } from './keyboards.js';
 
@@ -77,6 +79,36 @@ describe('boardsNavKeyboard', () => {
       expect(callbacks(boardsNavKeyboard('global'))).toEqual(['league', 'lazy']);
       expect(callbacks(boardsNavKeyboard('lazy'))).toEqual(['league', 'global']);
     });
+  });
+});
+
+describe('wordCardKeyboard', () => {
+  const data = (kb: ReturnType<typeof wordCardKeyboard>) =>
+    kb.inline_keyboard.flat().map((b) => ('callback_data' in b ? b.callback_data : ''));
+
+  it('leads to the next card, numbered, while the session has more', () => {
+    runWithLocale('en', () => {
+      const kb = wordCardKeyboard(12, 'take', { position: 2, total: 20 });
+      expect(data(kb)).toContain('nx:12');
+      expect(kb.inline_keyboard.at(-1)?.[0]?.text).toContain('2/20');
+    });
+  });
+
+  it('has no next button on the last card', () => {
+    runWithLocale('en', () => {
+      expect(data(wordCardKeyboard(12, 'take')).some((d) => d.startsWith('nx:'))).toBe(false);
+    });
+  });
+
+  it('drops only the next button once it is used, and the row it leaves empty', () => {
+    runWithLocale('en', () => {
+      const withNext = wordCardKeyboard(12, 'take', { position: 2, total: 20 }).inline_keyboard;
+      expect(withoutNextWord(withNext)).toEqual(wordCardKeyboard(12, 'take').inline_keyboard);
+    });
+  });
+
+  it('matches its own callback data', () => {
+    expect(CB_PATTERN.nextWord.exec('nx:12')?.[1]).toBe('12');
   });
 });
 

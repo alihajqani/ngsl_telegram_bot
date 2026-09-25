@@ -53,6 +53,8 @@ export const en: Locale = {
 
   newWords: {
     header: '📖 <b>{count} new words for today</b>',
+    next: 'Next word ⏭ ({position}/{total})',
+    ended: 'This session is over. Tap “{button}” for new words.',
     done: '✅ That is today’s batch. Try a review session to make them stick.',
     limitReached:
       '🎯 You have reached today’s limit of {target} words.\n' +

@@ -1,6 +1,5 @@
 import { remainingToday } from '@ngsl/core';
 import {
-  addNewWords,
   getDailyLimits,
   getDueWords,
   selectNewWords,
@@ -41,6 +40,11 @@ export interface ReviewSession {
  * The daily allowance is the user's own `daily_new_target`, minus what they have
  * already learned since local midnight — so the cap survives the bot restarting,
  * and lowering the target mid-day stops the session rather than going negative.
+ *
+ * The words are chosen here but NOT added to the deck: the bot shows them one
+ * card at a time and adds each word when its card appears. A learner who stops
+ * halfway keeps only the words they saw, and the rest of the day's allowance
+ * is still there for the next session.
  */
 export async function startNewWordSession(userId: number): Promise<NewWordSession> {
   const limits = await getDailyLimits(userId);
@@ -54,8 +58,6 @@ export async function startNewWordSession(userId: number): Promise<NewWordSessio
   if (words.length === 0) {
     return { words: [], remaining: allowance, limitReached: false, rendersQueued: 0 };
   }
-
-  await addNewWords(userId, words.map((w) => w.wordId));
 
   // Fire-and-forget: the learner should never wait on Redis to see their words.
   // Failures are logged, not surfaced — a missing clip degrades the card, it

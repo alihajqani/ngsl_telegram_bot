@@ -1,10 +1,22 @@
-import { getDailyLimits, getDueWords, getWordLemma, recordReview } from '@ngsl/db';
+import {
+  addNewWords,
+  getDailyLimits,
+  getDueWords,
+  getWordCard,
+  getWordLemma,
+  recordReview,
+} from '@ngsl/db';
 import { startNewWordSession, startReviewSession } from '@ngsl/queue';
 import { recordActivity, type ActivityResult } from '@ngsl/game';
 import { createLogger } from '@ngsl/shared';
 import { t } from '../i18n/i18n.js';
-import { reviewCardKeyboard, wordCardKeyboard } from '../keyboards.js';
-import type { BotContext } from '../types.js';
+import {
+  CB_PATTERN,
+  reviewCardKeyboard,
+  withoutNextWord,
+  wordCardKeyboard,
+} from '../keyboards.js';
+import type { BotContext, NewWordDeckState } from '../types.js';
 import { buildAnswerFeedback, buildReviewCard, buildWordCard } from './cards.js';
 
 const log = createLogger('bot.sessions');
@@ -12,9 +24,10 @@ const log = createLogger('bot.sessions');
 /**
  * `/newwords`.
  *
- * The session layer has already enforced the user's daily allowance, persisted
- * the words and enqueued their clip renders at session priority — this handler
- * only presents the result.
+ * The session layer has already enforced the user's daily allowance, chosen
+ * the words and enqueued their clip renders at session priority. The cards
+ * then come one at a time, each with a button to the next, so a batch of
+ * twenty is not twenty messages at once.
  */
 export async function newWordsHandler(ctx: BotContext): Promise<void> {
   const userId = ctx.session.userId;
@@ -35,26 +48,99 @@ export async function newWordsHandler(ctx: BotContext): Promise<void> {
     return;
   }
 
+  // A new session replaces any unfinished one: its unseen words were never
+  // added to the deck, so nothing is lost.
+  ctx.session.newWordDeck = {
+    queue: session.words.map((w) => w.wordId),
+    total: session.words.length,
+    earned: 0,
+  };
+
   await ctx.reply(t('newWords.header', { count: session.words.length }), { parse_mode: 'HTML' });
-
-  // One card per word: each carries its own examples, collocations and clips.
-  for (const word of session.words) {
-    await ctx.reply(buildWordCard(word), {
-      parse_mode: 'HTML',
-      reply_markup: wordCardKeyboard(word.wordId, word.lemma),
-    });
-  }
-
-  // Gamification runs after the cards are delivered: a points failure must never
-  // cost the learner their words.
-  await awardQuietly(ctx, 'new_word', session.words.length);
-
-  await ctx.reply(t('newWords.done'), { parse_mode: 'HTML' });
-  log.info('New word session served', {
+  await sendNextWordCard(ctx);
+  log.info('New word session started', {
     userId,
     words: session.words.length,
     rendersQueued: session.rendersQueued,
   });
+}
+
+/**
+ * The "next word" button (`nx:<wordId>`).
+ *
+ * Only the card on screen moves the session on. A double tap, or the button
+ * on a card from an earlier session, just loses its button.
+ */
+export async function nextWordHandler(ctx: BotContext): Promise<void> {
+  const match = CB_PATTERN.nextWord.exec(ctx.callbackQuery?.data ?? '');
+  const deck = ctx.session.newWordDeck;
+  const live = match !== null && deck?.current === Number(match[1]);
+
+  await ctx.answerCallbackQuery(
+    deck ? undefined : { text: t('newWords.ended', { button: t('menu.newWords') }) },
+  );
+
+  const message = ctx.callbackQuery?.message;
+  if (message && 'reply_markup' in message && message.reply_markup) {
+    await ctx
+      .editMessageReplyMarkup({
+        reply_markup: { inline_keyboard: withoutNextWord(message.reply_markup.inline_keyboard) },
+      })
+      .catch(() => undefined);
+  }
+
+  if (live) await sendNextWordCard(ctx);
+}
+
+/**
+ * Show the card at the head of the session, adding its word to the deck.
+ * The last card closes the session with the points it earned.
+ */
+async function sendNextWordCard(ctx: BotContext): Promise<void> {
+  const userId = ctx.session.userId;
+  const deck = ctx.session.newWordDeck;
+  if (userId === undefined || !deck) return;
+
+  const [wordId, ...rest] = deck.queue;
+  if (wordId === undefined) return finishNewWords(ctx, deck);
+
+  const word = await getWordCard(wordId);
+  if (!word) {
+    ctx.session.newWordDeck = { ...deck, queue: rest };
+    return sendNextWordCard(ctx);
+  }
+
+  // Into the deck before the card goes out: a word the learner has seen must
+  // come back for review, even if something after this line fails.
+  const added = await addNewWords(userId, [wordId]);
+
+  await ctx.reply(buildWordCard(word), {
+    parse_mode: 'HTML',
+    reply_markup: wordCardKeyboard(
+      word.wordId,
+      word.lemma,
+      rest.length > 0 ? { position: deck.total - rest.length + 1, total: deck.total } : undefined,
+    ),
+  });
+
+  // Gamification runs after the card is delivered: a points failure must never
+  // cost the learner their word. A word already in the deck earns nothing.
+  const award = added > 0 ? await recordQuietly(ctx, 'new_word', 1, wordId) : undefined;
+  if (award && award.notes.length > 0) {
+    await ctx.reply(award.notes.join('\n'), { parse_mode: 'HTML' }).catch(() => undefined);
+  }
+
+  const next = { ...deck, queue: rest, current: wordId, earned: deck.earned + (award?.earned ?? 0) };
+  if (rest.length > 0) ctx.session.newWordDeck = next;
+  else await finishNewWords(ctx, next);
+}
+
+async function finishNewWords(ctx: BotContext, deck: NewWordDeckState): Promise<void> {
+  ctx.session.newWordDeck = undefined;
+  const lines = [t('newWords.done')];
+  if (deck.earned > 0) lines.unshift(t('game.earned', { points: deck.earned }));
+  await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+  log.info('New word session finished', { userId: ctx.session.userId, words: deck.total });
 }
 
 /**
@@ -167,18 +253,41 @@ export async function reviewAnswerHandler(ctx: BotContext): Promise<void> {
 }
 
 
+type AwardReason = 'new_word' | 'review_correct' | 'clip_watched' | 'writing_submitted';
+
 /**
  * Award points and surface streak news, without ever letting gamification break
  * a learning flow.
  */
 export async function awardQuietly(
   ctx: BotContext,
-  reason: 'new_word' | 'review_correct' | 'clip_watched' | 'writing_submitted',
+  reason: AwardReason,
   times = 1,
   refId?: number,
 ): Promise<void> {
+  const award = await recordQuietly(ctx, reason, times, refId);
+  if (!award) return;
+
+  const lines = [...award.notes, t('game.earned', { points: award.earned })];
+  await ctx
+    .reply(lines.join('\n'), { parse_mode: 'HTML' })
+    .catch((error: unknown) =>
+      log.warn('Points message failed', { userId: ctx.session.userId, reason, error }),
+    );
+}
+
+/**
+ * Record the points without announcing them. `notes` holds the streak news
+ * (a freeze used, a milestone), which only the day's first award can carry.
+ */
+async function recordQuietly(
+  ctx: BotContext,
+  reason: AwardReason,
+  times = 1,
+  refId?: number,
+): Promise<{ earned: number; notes: string[] } | undefined> {
   const userId = ctx.session.userId;
-  if (userId === undefined) return;
+  if (userId === undefined) return undefined;
 
   try {
     let earned = 0;
@@ -191,7 +300,7 @@ export async function awardQuietly(
       earned += result.points + result.milestoneBonus;
       first ??= result;
     }
-    if (!first) return;
+    if (!first) return undefined;
 
     const notes: string[] = [];
     if (first.streak.freezesUsed > 0) notes.push(t('game.freezeUsed'));
@@ -200,10 +309,9 @@ export async function awardQuietly(
         t('game.milestone', { days: first.streak.milestone, bonus: first.milestoneBonus }),
       );
     }
-    notes.push(t('game.earned', { points: earned }));
-
-    await ctx.reply(notes.join('\n'), { parse_mode: 'HTML' });
+    return { earned, notes };
   } catch (error) {
     log.warn('Awarding points failed', { userId, reason, error });
+    return undefined;
   }
 }

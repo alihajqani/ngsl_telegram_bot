@@ -13,7 +13,12 @@ import {
   searchPromptHandler,
 } from './handlers/clips.js';
 import { collocationsHandler, examplesHandler } from './handlers/content.js';
-import { newWordsHandler, reviewAnswerHandler, reviewHandler } from './handlers/sessions.js';
+import {
+  newWordsHandler,
+  nextWordHandler,
+  reviewAnswerHandler,
+  reviewHandler,
+} from './handlers/sessions.js';
 import {
   cancelWritingHandler,
   hasOpenWritingSession,
@@ -154,6 +159,7 @@ async function main(): Promise<void> {
   bot.callbackQuery(CB_PATTERN.examples, examplesHandler);
   bot.callbackQuery(CB_PATTERN.collocations, collocationsHandler);
   bot.callbackQuery(CB_PATTERN.clips, clipsHandler);
+  bot.callbackQuery(CB_PATTERN.nextWord, nextWordHandler);
   bot.callbackQuery(CB_PATTERN.review, reviewAnswerHandler);
   bot.callbackQuery(CB_PATTERN.clipNav, clipNavHandler);
   bot.callbackQuery(CB_PATTERN.clipVote, clipVoteHandler);
