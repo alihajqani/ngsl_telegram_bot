@@ -9,6 +9,20 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-09-25
+
+### Added
+
+- **`scripts/local-up.sh`** brings the whole stack up on one machine with only
+  Docker installed: preflight checks of `.env` and the cookie file, image
+  builds, Postgres and Redis, schema, the NGSL seed, then the aligner, worker
+  and bot, with a summary at the end. Options: `--check`, `--no-build`,
+  `--no-bot`, `--no-aligner`, `--ingest=N`, `--content`, `--reset`. Documented
+  in README → "Run it locally".
+- **`packages/db/dist/migrate.js`** applies pending migrations from inside the
+  app images, where `drizzle-kit` is not installed. A database created with
+  `drizzle-kit push` (no migration journal) is detected and left untouched.
+
 ## [3.0.2] - 2026-09-24
 
 ### Fixed

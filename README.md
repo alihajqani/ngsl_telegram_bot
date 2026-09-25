@@ -27,7 +27,63 @@ Drizzle. v1 had the same rule written in prose and broke it in 11 files.
 
 ## Getting started
 
-### Docker (the whole stack)
+### Run it locally (one command)
+
+```bash
+cp .env.example .env        # first time only: fill in the values listed below
+scripts/local-up.sh         # checks, builds, database, schema, seed, services
+```
+
+Only Docker (with Compose v2) is needed on the machine: no Node, pnpm, ffmpeg or
+yt-dlp. The script runs these steps, and every one is safe to repeat:
+
+1. **Preflight checks.** Docker is running; `.env` exists (it is created from
+   `.env.example` on the first run, then the script stops so you can fill it in);
+   `BOT_TOKEN`, `ADMIN_TELEGRAM_IDS`, the database passwords and
+   `GEMINI_API_KEYS` are set and are not the example placeholders; and the
+   YouTube cookie file, if configured, exists and is readable by the worker
+   (uid 1000). Anything that would only degrade the stack (no clip vault, no
+   cookies, low disk) is a warning, not a stop.
+2. **Build** the bot, worker and aligner images. The first aligner build
+   downloads CPU PyTorch and the wav2vec2 model, about 1 GB.
+3. **Postgres and Redis** start and are waited on until healthy.
+4. **Schema.** `packages/db/dist/migrate.js` runs inside the worker image and
+   applies any pending migration from `packages/db/drizzle`. A database created
+   earlier with `drizzle-kit push` has no migration journal; it is left as it is,
+   with a note.
+5. **Seed** the 2,809 NGSL words (idempotent).
+6. **Start** the aligner, the worker and the bot, then report any service that
+   crashed or restarted, and a Telegram `409` (the same token polling elsewhere).
+7. **Summary:** service status, how many words, indexed videos, sentences and
+   clips the database holds, and the bot's link.
+
+Options:
+
+| Option | Effect |
+|---|---|
+| `--check` | Preflight checks only; changes nothing |
+| `--no-build` | Use the images already built |
+| `--no-bot` | Everything except the bot. Use it when the same `BOT_TOKEN` runs on a server: two processes polling one token keep cutting each other off |
+| `--no-aligner` | Skip the aligner (≈2 GB image, ≈1 GB RAM); clips are then cut on pauses |
+| `--ingest=N` | After start, index N new videos from every enabled channel |
+| `--content` | After start, generate examples and collocations for every word in the background (hours, resumable): `docker logs -f ngsl-content` |
+| `--reset` | Delete this project's local volumes first (database, Redis, clip scratch); asks for confirmation, `--yes` skips it |
+
+A fresh machine therefore goes from nothing to a working bot with clips like this:
+
+```bash
+scripts/local-up.sh --ingest=10 --content
+```
+
+The worker then renders clips in the background (`RENDER_VIDEOS_PER_HOUR` per
+hour) and uploads them to the vault topic. Stop everything with
+`docker compose stop`; the data stays in the Docker volumes for the next run.
+
+> **Use a separate bot for local work.** If the production bot runs on a server
+> with the same `BOT_TOKEN`, the two long-polling processes conflict. Create a
+> second bot with @BotFather for development, or start with `--no-bot`.
+
+### Docker by hand
 
 ```bash
 cp .env.example .env          # fill in BOT_TOKEN, GEMINI_API_KEYS, POSTGRES_PASSWORD, REDIS_PASSWORD…
@@ -37,11 +93,12 @@ docker compose logs -f bot worker
 
 `DATABASE_URL` and `REDIS_URL` are overridden by compose to the in-network
 hostnames, so the values in `.env` only matter to commands run from the host.
-On a database that has never been migrated, apply the schema and lexicon first:
+On a database that has never been set up, apply the schema and lexicon first:
 
 ```bash
-docker compose up -d postgres
-pnpm db:push && pnpm db:seed
+docker compose up -d postgres redis
+docker compose run --rm --no-deps worker node packages/db/dist/migrate.js
+docker compose run --rm --no-deps worker node packages/db/dist/seed/index.js
 ```
 
 ### Local processes (for development)
@@ -77,6 +134,7 @@ Release history and upgrade steps are in [CHANGELOG.md](CHANGELOG.md).
 
 | Command | Purpose |
 |---|---|
+| `scripts/local-up.sh` | Bring the whole stack up locally; see "Run it locally" |
 | `pnpm typecheck` | Build-mode type check across all packages |
 | `pnpm test` | Vitest — domain logic in `packages/core` |
 | `pnpm lint` | ESLint, type-aware, with layering rules |
