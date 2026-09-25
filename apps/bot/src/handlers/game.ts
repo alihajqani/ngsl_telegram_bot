@@ -31,6 +31,16 @@ const medal = (rank: number): string => MEDALS[rank - 1] ?? `${rank}.`;
 
 const today = (): string => dayKey(new Date(), config().app.timezone);
 
+/**
+ * Acknowledge the tap when a board was opened by a button under another board.
+ * The same handlers also serve the menu button and the command, which are
+ * plain messages: there `answerCallbackQuery` throws before it returns a
+ * promise, so a `.catch` on it cannot help and the board never appears.
+ */
+async function ackTap(ctx: BotContext): Promise<void> {
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => undefined);
+}
+
 /** Streak, multiplier, freezes and points — the "where do I stand" screen. */
 export async function streakHandler(ctx: BotContext): Promise<void> {
   const userId = ctx.session.userId;
@@ -73,7 +83,7 @@ export async function streakHandler(ctx: BotContext): Promise<void> {
 
 /** This week's cohort — the board that actually drives behaviour. */
 export async function leagueHandler(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery().catch(() => undefined);
+  await ackTap(ctx);
   const userId = ctx.session.userId;
   if (userId === undefined) return;
 
@@ -110,7 +120,7 @@ export async function leagueHandler(ctx: BotContext): Promise<void> {
 
 /** All-time board — vanity, deliberately secondary to the league. */
 export async function globalBoardHandler(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery().catch(() => undefined);
+  await ackTap(ctx);
   const userId = ctx.session.userId;
   if (userId === undefined) return;
 
@@ -140,7 +150,7 @@ export async function globalBoardHandler(ctx: BotContext): Promise<void> {
  * loop: using the feature requires bringing someone in.
  */
 export async function buddyHandler(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery().catch(() => undefined);
+  await ackTap(ctx);
   const userId = ctx.session.userId;
   if (userId === undefined) return;
 
@@ -191,7 +201,7 @@ export async function tryAcceptBuddy(ctx: BotContext, payload: string): Promise<
 
 /** The opt-in Lazy Board, with its redemption path stated on the board itself. */
 export async function lazyBoardHandler(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery().catch(() => undefined);
+  await ackTap(ctx);
   const rows = await lazyBoard(today(), LAZY_THRESHOLD_DAYS, 15);
 
   const lines = [t('game.lazyHeader'), ''];
