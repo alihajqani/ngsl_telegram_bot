@@ -101,6 +101,58 @@ docker compose run --rm --no-deps worker node packages/db/dist/migrate.js
 docker compose run --rm --no-deps worker node packages/db/dist/seed/index.js
 ```
 
+### Deploy to the server
+
+```bash
+git push origin main --follow-tags   # the server pulls this exact commit
+scripts/deploy.sh                    # build here, ship, migrate, restart, check
+```
+
+The server is too small to build the images, so `scripts/deploy.sh` builds them
+on this machine and ships them. It needs Docker and rsync here, and SSH access
+to the server with a key (no password prompt); the server needs Docker and a
+checkout of this repository with its own `.env`. Steps:
+
+1. **Preflight.** The working tree is clean, you are on `main`, and it matches
+   `origin/main` (the server pulls from origin, so push first). A commit without
+   a release tag is deployed with a warning. On the server: SSH works, the
+   checkout has no local changes to tracked files and can fast-forward to this
+   commit, and there is disk space for the images.
+2. **Build** `bot` and `worker` (plus `aligner` with `--aligner`).
+3. **Ship** only the images the server does not already have: `docker save`,
+   then `rsync --partial`, retried and resumed if the connection drops, then
+   `docker load`. The image ids are compared on both sides.
+4. **Code:** `git pull --ff-only` on the server, then a check that it is on the
+   same commit.
+5. **Migrations:** `migrate.js` runs in the new worker image *before* anything
+   restarts, since a bot that reads a new column crashes without it. If it
+   fails, nothing is restarted.
+6. **Restart** the services with `docker compose up -d --force-recreate`.
+7. **Health check:** each container is running the new image, has not
+   restarted, and logged no errors; the bot started polling without a
+   Telegram 409; the worker is ready. If the version changed, the worker is
+   announcing it to every learner (see BUSINESS_LOGIC §13).
+
+| Option | Effect |
+|---|---|
+| `--check` | Preflight checks only; changes nothing |
+| `--host=NAME` | SSH host (default `$DEPLOY_HOST`, else `Paris`) |
+| `--dir=PATH` | Checkout on the server (default `$DEPLOY_DIR`, else `/root/ngsl_telegram_bot`) |
+| `--aligner` | Also build, ship and restart the aligner (about 2 GB) |
+| `--no-build` | Ship the images already built |
+| `--baseline` | Once, see below |
+
+**A database built with `drizzle-kit push`** has no migration journal, so
+`migrate.js` cannot tell which migrations it has and leaves it alone; the
+deploy then stops before restarting anything and says so. If that database's
+schema already matches the newest migration in `packages/db/drizzle`, run
+`scripts/deploy.sh --baseline` once: it records every migration as applied
+without running any, and from then on each deploy applies new migrations by
+itself. If the schema is behind, apply the missing SQL by hand first.
+
+Settings in the server's `.env` (an admin id, say) take effect on the next
+deploy, which recreates the containers.
+
 ### Local processes (for development)
 
 ```bash
@@ -135,6 +187,7 @@ Release history and upgrade steps are in [CHANGELOG.md](CHANGELOG.md).
 | Command | Purpose |
 |---|---|
 | `scripts/local-up.sh` | Bring the whole stack up locally; see "Run it locally" |
+| `scripts/deploy.sh` | Deploy the pushed `main` to the server; see "Deploy to the server" |
 | `pnpm typecheck` | Build-mode type check across all packages |
 | `pnpm test` | Vitest — domain logic in `packages/core` |
 | `pnpm lint` | ESLint, type-aware, with layering rules |

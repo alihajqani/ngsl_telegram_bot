@@ -9,6 +9,16 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/deploy.sh`** deploys the pushed `main` to the server: preflight
+  checks on both sides, image build here, resumable transfer of only the
+  images that changed, `git pull`, migrations before the restart, restart, and
+  a health check. Documented in README → "Deploy to the server".
+- **`migrate.js --baseline`** records every migration as applied on a database
+  built with `drizzle-kit push` whose schema is current, so later migrations
+  apply automatically. Refused on a database that already has a journal.
+
 ## [3.3.0] - 2026-09-25
 
 ### Added
