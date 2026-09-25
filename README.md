@@ -121,7 +121,8 @@ checkout of this repository with its own `.env`. Steps:
 2. **Build** `bot` and `worker` (plus `aligner` with `--aligner`).
 3. **Ship** only the images the server does not already have: `docker save`,
    then `rsync --partial`, retried and resumed if the connection drops, then
-   `docker load`. The image ids are compared on both sides.
+   `docker load`. Images are compared by content (layers and config) on both
+   sides, not by id, which changes with every build.
 4. **Code:** `git pull --ff-only` on the server, then a check that it is on the
    same commit.
 5. **Migrations:** `migrate.js` runs in the new worker image *before* anything

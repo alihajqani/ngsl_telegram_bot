@@ -66,6 +66,14 @@ ssh_opts=(-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15)
 remote() { ssh "${ssh_opts[@]}" "$host" "cd '$dir' && $1"; }
 image_id() { docker image inspect "$(image_of "$1")" --format '{{.Id}}' 2>/dev/null || true; }
 remote_image_id() { remote "docker image inspect $(image_of "$1") --format '{{.Id}}' 2>/dev/null || true"; }
+# What an image contains: its layers and config. Not the id: with the containerd
+# image store the id covers BuildKit's build attestations, which differ on every
+# build, so an unchanged image would be shipped again each time.
+fingerprint_format='{{json .RootFS.Layers}}{{json .Config}}'
+fingerprint() { docker image inspect "$(image_of "$1")" --format "$fingerprint_format" 2>/dev/null | sha256sum | cut -c1-16; }
+remote_fingerprint() {
+  remote "docker image inspect $(image_of "$1") --format '$fingerprint_format' 2>/dev/null | sha256sum | cut -c1-16"
+}
 strip_ansi() { sed -E 's/\x1b\[[0-9;]*m//g'; }
 
 # ── Preflight ───────────────────────────────────────────────────────────────
@@ -128,7 +136,7 @@ done
 step "Shipping images"
 to_ship=()
 for service in "${services[@]}"; do
-  if [[ "$(image_id "$service")" == "$(remote_image_id "$service")" ]]; then
+  if [[ "$(fingerprint "$service")" == "$(remote_fingerprint "$service")" ]]; then
     ok "$service: the server already has this image"
   else
     to_ship+=("$service")
@@ -157,7 +165,7 @@ if ((${#to_ship[@]} > 0)); then
     die "docker load failed on $host"
 
   for service in "${to_ship[@]}"; do
-    [[ "$(image_id "$service")" == "$(remote_image_id "$service")" ]] ||
+    [[ "$(fingerprint "$service")" == "$(remote_fingerprint "$service")" ]] ||
       die "$service: the server's image does not match the one built here"
     ok "$service: shipped and verified"
   done
@@ -204,7 +212,7 @@ for service in "${services[@]}"; do
   state=$(remote "docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.Image}}' $c" 2>/dev/null || echo "missing 0 -")
   read -r status restarts running_image <<<"$state"
   [[ "$status" == running ]] || die "$service is $status; see: ssh $host docker logs $c"
-  [[ "$running_image" == "$(image_id "$service")" ]] || die "$service is not running the new image"
+  [[ "$running_image" == "$(remote_image_id "$service")" ]] || die "$service is not running the image just deployed"
   ((restarts == 0)) || warn "$service restarted $restarts times since it was recreated"
   logs=$(remote "docker logs --since $started $c 2>&1" | strip_ansi)
   errors=$(grep -c 'ERROR' <<<"$logs" || true)
