@@ -6,6 +6,7 @@ import { closeConnection, closeVideoRenderQueue, runPrewarm } from '@ngsl/queue'
 import { isVaultConfigured } from './vault.js';
 import { startVideoRenderWorker } from './workers/video-render.worker.js';
 import { startScheduler } from './scheduler.js';
+import { announceRelease, appVersion } from './jobs/release-announcement.js';
 import { flushMonitor, isMonitorEnabled, reportLog } from '@ngsl/monitor';
 
 const log = createLogger('worker.main');
@@ -44,6 +45,13 @@ async function main(): Promise<void> {
     void runPrewarm('breadth').catch((error: unknown) =>
       log.error('Startup pre-warm failed', { error }),
     );
+  }
+
+  if (cfg.jobs.releaseAnnouncementEnabled) {
+    // Once per version, paced; a restart mid-send resumes where it stopped.
+    void appVersion()
+      .then((version) => announceRelease(version))
+      .catch((error: unknown) => log.error('Release announcement failed', { error }));
   }
 
   const shutdown = async (signal: string): Promise<void> => {

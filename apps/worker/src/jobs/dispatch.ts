@@ -27,12 +27,14 @@ export interface DispatchResult {
 
 /**
  * Send one HTML message. A 403 or 400 means the user blocked the bot or the chat
- * is gone, so they are flagged and later bulk sends skip them.
+ * is gone, so they are flagged and later bulk sends skip them. A 429 is
+ * Telegram's flood control: wait the `retry_after` it names, then try once more.
  */
 export async function deliver(
   target: DispatchTarget,
   text: string,
   keyboard?: InlineKeyboard,
+  retried = false,
 ): Promise<boolean> {
   try {
     await api().api.sendMessage(target.telegramId, text, {
@@ -41,6 +43,12 @@ export async function deliver(
     });
     return true;
   } catch (error) {
+    if (error instanceof GrammyError && error.error_code === 429 && !retried) {
+      const seconds = error.parameters.retry_after ?? 5;
+      log.warn('Flood control; waiting before retrying', { userId: target.userId, seconds });
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+      return deliver(target, text, keyboard, true);
+    }
     if (error instanceof GrammyError && (error.error_code === 403 || error.error_code === 400)) {
       await flagBlocked(target.telegramId).catch(() => undefined);
     } else {

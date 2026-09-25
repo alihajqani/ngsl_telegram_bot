@@ -110,9 +110,9 @@ export async function adminStats(database: Database = db()): Promise<AdminStats>
 /** Broadcast audience: everyone who has not blocked the bot. */
 export async function broadcastAudience(
   database: Database = db(),
-): Promise<{ telegramId: number; locale: 'fa' | 'en' }[]> {
+): Promise<{ userId: number; telegramId: number; locale: 'fa' | 'en' }[]> {
   return database
-    .select({ telegramId: appUser.telegramId, locale: appUser.locale })
+    .select({ userId: appUser.id, telegramId: appUser.telegramId, locale: appUser.locale })
     .from(appUser)
     .where(eq(appUser.blocked, false));
 }
