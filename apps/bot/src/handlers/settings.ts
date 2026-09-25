@@ -1,4 +1,4 @@
-import { getSettings, setLocale, updateSettings, type Settings } from '@ngsl/db';
+import { getSettings, setLocale, updateSettings, type ClipAccent, type Settings } from '@ngsl/db';
 import { InlineKeyboard } from 'grammy';
 import { runWithLocale, t, type LocaleCode } from '../i18n/i18n.js';
 import { mainMenuKeyboard } from '../keyboards.js';
@@ -15,6 +15,9 @@ import { isAdmin } from './admin.js';
 
 const NEW_STEPS = [3, 5, 10, 15, 20];
 const REVIEW_STEPS = [5, 10, 20, 30, 50];
+
+/** The accent button cycles American → British → all → American. */
+export const NEXT_ACCENT: Record<ClipAccent, ClipAccent> = { us: 'uk', uk: 'any', any: 'us' };
 
 function panelText(settings: Settings): string {
   return [
@@ -52,6 +55,8 @@ function panelKeyboard(settings: Settings, locale: LocaleCode): InlineKeyboard {
       t('settings.dictionary', { value: t(`settings.dict.${settings.preferredDictionary}`) }),
       'st:dc',
     )
+    .row()
+    .text(t('settings.accent', { value: t(`settings.accents.${settings.clipAccent}`) }), 'st:ac')
     .row()
     .text(t(settings.remindersEnabled ? 'settings.remindersOn' : 'settings.remindersOff'), 'st:re')
     .text(
@@ -106,6 +111,9 @@ export async function settingsCallbackHandler(ctx: BotContext): Promise<void> {
       case 'st:dc':
         patch.preferredDictionary =
           current.preferredDictionary === 'cambridge' ? 'oxford' : 'cambridge';
+        break;
+      case 'st:ac':
+        patch.clipAccent = NEXT_ACCENT[current.clipAccent];
         break;
       case 'st:re':
         patch.remindersEnabled = !current.remindersEnabled;

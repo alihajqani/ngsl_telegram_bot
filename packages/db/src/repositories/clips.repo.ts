@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { db, type Database } from '../client.js';
 import {
   channel,
+  type ClipAccent,
   segment,
   segmentMedia,
   segmentVote,
@@ -40,6 +41,20 @@ const idArray = (ids: readonly number[], type: 'int' | 'bigint') =>
 // Serving
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The accent setting as SQL over `channel c`. A channel is `us`, `uk` or
+ * `mixed` (speakers of both); an unlabelled one counts as mixed. `us` and `uk`
+ * drop the other accent and put their own ahead of the mixed channels.
+ */
+function accentFilter(accent: ClipAccent) {
+  return accent === 'any'
+    ? sql`true`
+    : sql`coalesce(c.accent, 'mixed') in (${accent}, 'mixed')`;
+}
+function accentRank(accent: ClipAccent) {
+  return accent === 'any' ? sql`0` : sql`(case when c.accent = ${accent} then 0 else 1 end)`;
+}
+
 export interface ClipDeck {
   /** Ordered: never-seen clips first, spread across videos; then least recently seen. */
   segmentIds: number[];
@@ -54,6 +69,9 @@ export interface ClipDeck {
  * through the deck moves between speakers instead of walking one talk. Seen
  * clips follow, least recently seen first: a repeat beats an empty screen.
  *
+ * The learner's accent setting filters by channel, and among the unseen clips
+ * their own accent's channels come before the mixed ones.
+ *
  * Not filtered on `video.status`: a rendered clip is a file in Telegram's CDN,
  * and a source removed from YouTube does not stop it playing.
  */
@@ -61,6 +79,7 @@ export async function clipDeckForWord(
   userId: number,
   wordId: number,
   limit: number,
+  accent: ClipAccent = 'any',
   database: Database = db(),
 ): Promise<ClipDeck> {
   const rows = await database.execute<Row<{ segmentId: number; seen: boolean }>>(sql`
@@ -68,6 +87,7 @@ export async function clipDeckForWord(
       from (
         select s.id as segment_id,
                us.seen_at,
+               ${accentRank(accent)} as accent_rank,
                (m.likes - m.dislikes) as net,
                o.quality_score as quality,
                row_number() over (
@@ -77,12 +97,16 @@ export async function clipDeckForWord(
           from ${wordOccurrence} o
           join ${segment} s on s.id = o.segment_id
           join ${segmentMedia} m on m.segment_id = s.id
+          join ${video} v on v.id = s.video_id
+          join ${channel} c on c.id = v.channel_id
           left join ${userSegmentSeen} us on us.segment_id = s.id and us.user_id = ${userId}
          where o.word_id = ${wordId}
            and s.active
            and not m.disabled
+           and ${accentFilter(accent)}
       ) ranked
      order by (seen_at is not null),
+              case when seen_at is null then accent_rank end,
               case when seen_at is null then rn end,
               seen_at,
               net desc,
@@ -97,23 +121,28 @@ export async function clipDeckForWord(
 /**
  * Free-text search over every rendered clip: any word or phrase, YouGlish-style.
  * `phraseto_tsquery` keeps word order, so "look forward to" finds that phrase
- * rather than three scattered words.
+ * rather than three scattered words. The accent setting applies as for a word.
  */
 export async function clipDeckForQuery(
   userId: number,
   query: string,
   limit: number,
+  accent: ClipAccent = 'any',
   database: Database = db(),
 ): Promise<ClipDeck> {
   const rows = await database.execute<Row<{ segmentId: number; seen: boolean }>>(sql`
     select s.id as "segmentId", us.seen_at is not null as seen
       from ${segment} s
       join ${segmentMedia} m on m.segment_id = s.id
+      join ${video} v on v.id = s.video_id
+      join ${channel} c on c.id = v.channel_id
       left join ${userSegmentSeen} us on us.segment_id = s.id and us.user_id = ${userId}
      where to_tsvector('english', s.text) @@ phraseto_tsquery('english', ${query})
        and s.active
        and not m.disabled
+       and ${accentFilter(accent)}
      order by (us.seen_at is not null),
+              case when us.seen_at is null then ${accentRank(accent)} end,
               us.seen_at,
               ts_rank(to_tsvector('english', s.text), phraseto_tsquery('english', ${query})) desc,
               (m.likes - m.dislikes) desc,

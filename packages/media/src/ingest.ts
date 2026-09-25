@@ -69,7 +69,12 @@ export async function ensureChannel(
     })
     .onConflictDoUpdate({
       target: channel.ytChannelId,
-      set: { name: sql`excluded.name`, tier: sql`excluded.tier`, enabled: sql`excluded.enabled` },
+      set: {
+        name: sql`excluded.name`,
+        tier: sql`excluded.tier`,
+        accent: sql`excluded.accent`,
+        enabled: sql`excluded.enabled`,
+      },
     })
     .returning({ id: channel.id, lastEnumeratedAt: channel.lastEnumeratedAt });
   return row!;

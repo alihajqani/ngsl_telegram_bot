@@ -119,6 +119,9 @@ export const en: Locale = {
     removed: 'This clip is out of rotation. Thanks!',
     expired: 'These results are out of date. Please search again.',
     unavailable: 'This clip is no longer available.',
+    otherAccent:
+      'No clips for “{title}” in the {accent} accent yet.\n' +
+      'You can set the accent to “{all}” in ⚙️ Settings.',
   },
 
   search: {
@@ -208,6 +211,8 @@ export const en: Locale = {
     reviewLabel: '— reviews per day —',
     dictionary: '📕 Dictionary: {value}',
     dict: { cambridge: 'Cambridge', oxford: 'Oxford' },
+    accent: '🗣 Clip accent: {value}',
+    accents: { us: '🇺🇸 American', uk: '🇬🇧 British', any: '🌐 All' },
     remindersOn: '🔔 Reminders: on',
     remindersOff: '🔕 Reminders: off',
     motivationOn: '🌅 Daily motivation: on',

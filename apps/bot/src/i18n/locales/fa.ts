@@ -118,6 +118,9 @@ export const fa = {
     removed: 'این کلیپ از چرخه خارج شد. ممنون!',
     expired: 'این فهرست قدیمی شده است. دوباره جست‌وجو کنید.',
     unavailable: 'این کلیپ دیگر در دسترس نیست.',
+    otherAccent:
+      'برای «{title}» هنوز کلیپی با لهجهٔ {accent} نداریم.\n' +
+      'در ⚙️ تنظیمات می‌توانید لهجه را روی «{all}» بگذارید.',
   },
 
   search: {
@@ -207,6 +210,8 @@ export const fa = {
     reviewLabel: '— مرور در روز —',
     dictionary: '📕 دیکشنری: {value}',
     dict: { cambridge: 'کمبریج', oxford: 'آکسفورد' },
+    accent: '🗣 لهجهٔ کلیپ‌ها: {value}',
+    accents: { us: '🇺🇸 آمریکایی', uk: '🇬🇧 بریتانیایی', any: '🌐 همه' },
     remindersOn: '🔔 یادآوری: روشن',
     remindersOff: '🔕 یادآوری: خاموش',
     motivationOn: '🌅 انگیزهٔ روزانه: روشن',

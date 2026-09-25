@@ -58,6 +58,9 @@ const updatedAt = () => tsColumn('updated_at');
 
 export const localeEnum = pgEnum('locale', ['fa', 'en']);
 export const dictionaryEnum = pgEnum('dictionary', ['cambridge', 'oxford']);
+/** Which clips a learner is served, matched against `channel.accent`. */
+export const clipAccentEnum = pgEnum('clip_accent', ['us', 'uk', 'any']);
+export type ClipAccent = (typeof clipAccentEnum.enumValues)[number];
 /** `known` = the user pressed "I know this" and the word jumped straight to box 5. */
 export const reviewResultEnum = pgEnum('review_result', ['correct', 'wrong', 'known']);
 export const subStatusEnum = pgEnum('sub_status', ['pending', 'manual', 'none']);
@@ -115,6 +118,11 @@ export const userSettings = pgTable('user_settings', {
   dailyReviewTarget: smallint('daily_review_target').notNull().default(10),
 
   preferredDictionary: dictionaryEnum('preferred_dictionary').notNull().default('cambridge'),
+  /**
+   * American by default. `us` or `uk` serves that accent's channels first, then
+   * the `mixed` ones, and never the other accent; `any` serves every channel.
+   */
+  clipAccent: clipAccentEnum('clip_accent').notNull().default('us'),
   remindersEnabled: boolean('reminders_enabled').notNull().default(true),
   motivationEnabled: boolean('motivation_enabled').notNull().default(false),
   digestEnabled: boolean('digest_enabled').notNull().default(true),
@@ -261,6 +269,7 @@ export const channel = pgTable(
     name: varchar('name', { length: 160 }).notNull(),
     /** 1 = flagship (TED, BBC). Lower tiers are used only to fill gaps. */
     tier: smallint('tier').notNull().default(1),
+    /** `us`, `uk` or `mixed`, from `data/channels.yml`. Drives the clip accent setting. */
     accent: varchar('accent', { length: 32 }),
     enabled: boolean('enabled').notNull().default(true),
     lastEnumeratedAt: timestamp('last_enumerated_at', { withTimezone: true }),

@@ -1,6 +1,14 @@
 import { and, eq, gt, isNotNull, lte, sql } from 'drizzle-orm';
 import { db, type Database } from '../client.js';
-import { appUser, pointsLedger, userSettings, userStreak, userWord, video } from '../schema.js';
+import {
+  appUser,
+  pointsLedger,
+  userSettings,
+  userStreak,
+  userWord,
+  video,
+  type ClipAccent,
+} from '../schema.js';
 
 /** User settings, admin statistics, and the reminder audience query. */
 
@@ -10,6 +18,7 @@ export interface Settings {
   dailyNewTarget: number;
   dailyReviewTarget: number;
   preferredDictionary: 'cambridge' | 'oxford';
+  clipAccent: ClipAccent;
   remindersEnabled: boolean;
   motivationEnabled: boolean;
   digestEnabled: boolean;
@@ -21,6 +30,7 @@ const DEFAULTS: Settings = {
   dailyNewTarget: 5,
   dailyReviewTarget: 10,
   preferredDictionary: 'cambridge',
+  clipAccent: 'us',
   remindersEnabled: true,
   motivationEnabled: false,
   digestEnabled: true,
@@ -37,6 +47,7 @@ export async function getSettings(
       dailyNewTarget: userSettings.dailyNewTarget,
       dailyReviewTarget: userSettings.dailyReviewTarget,
       preferredDictionary: userSettings.preferredDictionary,
+      clipAccent: userSettings.clipAccent,
       remindersEnabled: userSettings.remindersEnabled,
       motivationEnabled: userSettings.motivationEnabled,
       digestEnabled: userSettings.digestEnabled,

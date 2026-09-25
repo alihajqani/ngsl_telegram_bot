@@ -3,9 +3,11 @@ import {
   clipDeckForWord,
   findWordByLemma,
   getServableClip,
+  getSettings,
   getWordLemma,
   markSegmentSeen,
   voteSegment,
+  type ClipAccent,
 } from '@ngsl/db';
 import { prewarmWords } from '@ngsl/queue';
 import { createLogger } from '@ngsl/shared';
@@ -29,23 +31,35 @@ const DECK_SIZE = 30;
  * `file_id`, so opening a deck is one message and every arrow tap swaps the
  * video in place with `editMessageMedia`. The deck's order is fixed when it
  * opens: never-seen clips first, one per video before any video's second.
+ * The learner's accent setting (American by default) decides which channels
+ * the deck draws on.
  */
+
+/** Read when a deck is built: its order is fixed from then on. */
+async function accentOf(userId: number): Promise<ClipAccent> {
+  return (await getSettings(userId)).clipAccent;
+}
 
 /** "Watch clips" under a word card (`cl:<wordId>`). */
 export async function clipsHandler(ctx: BotContext): Promise<void> {
   const match = /^cl:(\d+)$/.exec(ctx.callbackQuery?.data ?? '');
   await ctx.answerCallbackQuery();
-  if (!match) return;
-  await openWordDeck(ctx, Number(match[1]));
+  const userId = ctx.session.userId;
+  if (!match || userId === undefined) return;
+  await openWordDeck(ctx, Number(match[1]), await accentOf(userId));
 }
 
-async function openWordDeck(ctx: BotContext, wordId: number): Promise<void> {
+async function openWordDeck(ctx: BotContext, wordId: number, accent: ClipAccent): Promise<void> {
   const userId = ctx.session.userId;
   if (userId === undefined) return;
 
-  const deck = await clipDeckForWord(userId, wordId, DECK_SIZE);
+  const deck = await clipDeckForWord(userId, wordId, DECK_SIZE, accent);
   if (deck.segmentIds.length === 0) {
-    await askForRender(ctx, wordId);
+    if (await hasOtherAccents(userId, accent, { wordId })) {
+      await sayOtherAccent(ctx, (await getWordLemma(wordId)) ?? '', accent);
+    } else {
+      await askForRender(ctx, wordId);
+    }
     return;
   }
 
@@ -65,6 +79,31 @@ async function askForRender(ctx: BotContext, wordId: number): Promise<void> {
     log.warn('On-demand render request failed', { userId: ctx.session.userId, wordId, error }),
   );
   await ctx.reply(t('clips.preparing'), { parse_mode: 'HTML' });
+}
+
+/** Clips exist, just none in the learner's accent. */
+async function hasOtherAccents(
+  userId: number,
+  accent: ClipAccent,
+  target: { wordId?: number; query?: string },
+): Promise<boolean> {
+  if (accent === 'any') return false;
+  const { wordId, query } = target;
+  if (wordId !== undefined && (await clipDeckForWord(userId, wordId, 1, 'any')).segmentIds.length > 0) {
+    return true;
+  }
+  return query !== undefined && (await clipDeckForQuery(userId, query, 1, 'any')).segmentIds.length > 0;
+}
+
+async function sayOtherAccent(ctx: BotContext, title: string, accent: ClipAccent): Promise<void> {
+  await ctx.reply(
+    t('clips.otherAccent', {
+      title: escapeHtml(title),
+      accent: t(`settings.accents.${accent}`),
+      all: t('settings.accents.any'),
+    }),
+    { parse_mode: 'HTML' },
+  );
 }
 
 /** The 🔎 menu button: the next message is the search. */
@@ -88,19 +127,25 @@ export async function searchHandler(ctx: BotContext, raw: string): Promise<void>
     return;
   }
 
+  const accent = await accentOf(userId);
   const wordId = query.includes(' ') ? undefined : await findWordByLemma(query);
   if (wordId !== undefined) {
-    const deck = await clipDeckForWord(userId, wordId, DECK_SIZE);
+    const deck = await clipDeckForWord(userId, wordId, DECK_SIZE, accent);
     if (deck.segmentIds.length > 0) {
-      await openWordDeck(ctx, wordId);
+      await openWordDeck(ctx, wordId, accent);
       return;
     }
   }
 
-  const deck = await clipDeckForQuery(userId, query, DECK_SIZE);
+  const deck = await clipDeckForQuery(userId, query, DECK_SIZE, accent);
   if (deck.segmentIds.length === 0) {
-    if (wordId !== undefined) await askForRender(ctx, wordId);
-    else await ctx.reply(t('search.none', { query: escapeHtml(query) }), { parse_mode: 'HTML' });
+    if (await hasOtherAccents(userId, accent, { wordId, query })) {
+      await sayOtherAccent(ctx, query, accent);
+    } else if (wordId !== undefined) {
+      await askForRender(ctx, wordId);
+    } else {
+      await ctx.reply(t('search.none', { query: escapeHtml(query) }), { parse_mode: 'HTML' });
+    }
     return;
   }
 
@@ -127,7 +172,7 @@ export async function clipNavHandler(ctx: BotContext): Promise<void> {
       return;
     }
     const wordId = Number(key!.slice(1));
-    const deck = await clipDeckForWord(userId, wordId, DECK_SIZE);
+    const deck = await clipDeckForWord(userId, wordId, DECK_SIZE, await accentOf(userId));
     if (deck.segmentIds.length === 0) {
       await ctx.answerCallbackQuery({ text: t('clips.unavailable') });
       return;
