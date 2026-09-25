@@ -11,7 +11,7 @@
 > §7 here. Add an entry to the Changelog below every time.
 
 **Extracted from commit:** `bfb3958`
-**Last verified:** 2026-09-24
+**Last verified:** 2026-09-25
 
 ---
 
@@ -19,6 +19,18 @@
 
 Newest first. Record the commit whose behaviour the document now describes, not
 the commit that edited the document.
+
+### 2026-09-25 — describes `v3.2.0`
+
+- New words come one card at a time, each with a numbered ⏭ button to the next,
+  and a word joins the deck only when its card is shown (§6, §5).
+- Clip accent setting, American by default: `us`/`uk` serve that accent's
+  channels first, then mixed ones, never the other accent; `any` serves all
+  (§8.6, §15).
+- The main menu is no longer `is_persistent`, so the back button on a phone
+  closes it (§2.1).
+- The league, all-time and Lazy boards open from the menu and commands again;
+  only a callback query is acknowledged (§2.1).
 
 ### 2026-09-24 — describes `v3.0.2`
 
@@ -119,8 +131,8 @@ update. It is the sole input to peak-hour reminders (§12).
 
 *Source: `apps/bot/src/keyboards.ts` (`MENU_LAYOUT`, `boardsNavKeyboard`), `apps/bot/src/index.ts` (`MENU_ROUTES`, `COMMANDS`)*
 
-**Nothing is reachable only by typing a command.** The persistent main menu has a
-button for every learner feature:
+**Nothing is reachable only by typing a command.** The main menu has a button
+for every learner feature:
 
 | | |
 |---|---|
@@ -132,6 +144,18 @@ button for every learner feature:
 
 Admins get an extra row, 🛠 Admin. The routes are a `Record<MenuKey, handler>`,
 so a button added to the layout without a handler fails the build.
+
+The menu is deliberately **not `is_persistent`**: a persistent reply keyboard
+cannot be hidden, so on Android the back button left the chat instead of closing
+it. The keyboard icon beside the input field brings it back. Telegram keeps the
+keyboard a chat last received, so a learner gets the new behaviour on the next
+`/start` or language change.
+
+A board handler serves a menu button and a command (plain messages) as well as
+the buttons under another board (callback queries), so it acknowledges only a
+callback query. `answerCallbackQuery` on a message throws synchronously, before
+any `.catch` can attach, which is how the boards once showed nothing from the
+menu.
 
 The three boards (league, all-time, Lazy Board) each carry buttons to the other
 two, and the streak screen links to all three plus the buddy invite.
@@ -196,7 +220,9 @@ the learner rarely waits on a render.
 Words already in the user's deck are excluded by an anti-join. The result is
 shuffled.
 
-Insertion uses `onConflictDoNothing`, so re-issuing a word is idempotent.
+Insertion uses `onConflictDoNothing`, so re-issuing a word is idempotent;
+`addNewWords` returns how many rows were new, so a re-issued word earns no
+points.
 
 ---
 
@@ -215,7 +241,9 @@ timezone** (default `Asia/Tehran`). Two properties follow:
   session rather than producing a negative quota.
 
 "New done today" counts `user_word.first_seen_at`; "reviews done today" counts
-`review_event.created_at`. Both compare against `date_trunc('day', now() at time
+`review_event.created_at`. A new word enters `user_word` when its card is shown,
+not when the session is chosen, so an abandoned session leaves the rest of the
+day's allowance for the next one. Both compare against `date_trunc('day', now() at time
 zone <tz>)`.
 
 Every daily rollover in the system keys off `dayKey()`, which formats an instant
@@ -230,8 +258,26 @@ as `YYYY-MM-DD` in a given IANA zone.
 Due words are pulled **most-overdue first**, up to the remaining allowance.
 
 **Reviews are strictly one card at a time.** The learner must answer before the
-next card appears; batching them would make the Leitner signal meaningless. New
-words, by contrast, are sent as one card per word in a single burst.
+next card appears; batching them would make the Leitner signal meaningless.
+
+**New words are one card at a time too**, but with nothing to answer: each card
+carries a numbered **⏭ Next word (2/20)** button, and the last card has none and
+is followed by the points earned and the closing line. The session
+(`newWordDeck`) holds the word ids still to show and the one on screen:
+
+- The session layer chooses the words and pre-warms their clips, but does **not**
+  add them to the deck. Each word is added (`addNewWords`) when its card is
+  shown, before the card is sent, so a word the learner saw always comes back
+  for review.
+- Points (`new_word`, `refId` = word id) are recorded per card, after it is
+  delivered, and only when the word was new to the deck. Streak news is replied
+  at once; the points are announced with the last card.
+- Only the card on screen advances the session. The used button is removed and
+  the rest of the card's buttons stay. A double tap, or a button left on an
+  earlier session's card, just loses its button; a tap after the session ended
+  gets a toast pointing to 📖 New words.
+- Starting a new session replaces an unfinished one. Its unseen words were never
+  added, so nothing is lost.
 
 Implementation details that are load-bearing:
 
@@ -532,8 +578,18 @@ Active jobs are left alone.
 first; ⏮/⏭ swap the video inside the same message (`editMessageMedia`) and wrap
 around. Everything is a cached `file_id`, so each tap is instant.
 
+**Accent.** Each channel in `data/channels.yml` is `us`, `uk` or `mixed`
+(speakers of both), copied to `channel.accent` on every ingest; an unlabelled
+channel counts as mixed. The learner's `clip_accent` setting, **American by
+default**, filters word decks and searches alike: `us` or `uk` keeps that accent's
+channels and the mixed ones and drops the other accent; `any` keeps everything.
+Among unseen clips, the learner's own accent comes before the mixed channels.
+When a filtered deck is empty but other accents have clips, the learner is told
+so and pointed at 🌐 All in settings, rather than told the clips are being
+prepared.
+
 **Deck order is fixed when it opens** and kept in the session: never-seen clips
-first, and within them the first clip of every video before any video's second
+first (the learner's own accent before mixed channels), and within them the first clip of every video before any video's second
 (`row_number() partition by video`, ranked by net votes then quality), so paging
 moves between speakers. Seen clips follow, least recently seen first: a repeat
 beats an empty screen. Arrows on an older message rebuild a word's deck; an old
@@ -995,6 +1051,7 @@ composer, and the broadcast route takes precedence over every other text route.
 | Daily new target | 5 | 3, 5, 10, 15, 20 |
 | Daily review target | 10 | 5, 10, 20, 30, 50 |
 | Preferred dictionary | cambridge | cambridge, oxford |
+| Clip accent (`clip_accent`) | us | us → uk → any, one button cycling (§8.6) |
 | Reminders | on | — |
 | Morning motivation | off | — |
 | Nightly boards (`digest_enabled`) | on | — |

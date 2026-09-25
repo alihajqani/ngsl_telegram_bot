@@ -9,6 +9,44 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-09-25
+
+### Added
+
+- **Clip accent setting.** ⚙️ Settings has a 🗣 button that cycles through
+  🇺🇸 American, 🇬🇧 British and 🌐 All. American is the default, including for
+  existing users. American or British serves that accent's channels first, then
+  the mixed ones (TED, Veritasium, English Speeches), and never the other
+  accent. The choice applies to word clips and to search. When a word has clips
+  only in another accent, the bot says so instead of "being prepared".
+
+### Changed
+
+- **New words come one at a time.** Each card has a numbered ⏭ Next word
+  button, so a batch of twenty is no longer twenty messages at once. A word is
+  added to the deck when its card is shown, so stopping halfway keeps the rest
+  of the day's allowance. Points are recorded per card and announced with the
+  last one.
+- The ingest now refreshes `channel.accent` from `data/channels.yml` on every
+  run, not only when the channel is first seen.
+
+### Fixed
+
+- **🏆 League showed nothing.** Opening a board from the menu or by command
+  threw before replying (`answerCallbackQuery` on a message). The all-time and
+  Lazy boards had the same fault.
+- **The menu could not be closed with the back button on a phone.** The main
+  menu is no longer persistent; the keyboard icon next to the input field
+  opens it again.
+
+### Upgrade notes
+
+- Migration `0004_clip_accent` adds `user_settings.clip_accent`. Apply it before
+  starting the new bot: `docker compose run --rm --no-deps -T worker node
+  packages/db/dist/migrate.js`.
+- Telegram keeps the menu a chat last received, so each learner gets the
+  closable menu after their next `/start`.
+
 ## [3.1.0] - 2026-09-25
 
 ### Added
