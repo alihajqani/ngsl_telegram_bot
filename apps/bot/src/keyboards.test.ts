@@ -44,6 +44,12 @@ describe('mainMenuKeyboard', () => {
   it('has no empty rows, which Telegram renders as gaps', () => {
     expect(mainMenuKeyboard({ admin: true }).build().every((row) => row.length > 0)).toBe(true);
   });
+
+  it('can be hidden, so the back button on a phone closes it', () => {
+    // `is_persistent` keeps the menu on screen for good: Android's back button
+    // then leaves the chat instead of closing the menu.
+    expect(mainMenuKeyboard().is_persistent).toBeFalsy();
+  });
 });
 
 describe('menuKeyFor', () => {

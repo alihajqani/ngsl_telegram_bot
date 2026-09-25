@@ -50,7 +50,13 @@ export const MENU_LAYOUT = [
 
 export type MenuKey = (typeof MENU_LAYOUT)[number][number] | 'admin';
 
-/** The persistent main menu. The admin button is added for admins only. */
+/**
+ * The main menu. The admin button is added for admins only.
+ *
+ * Deliberately not `persistent()`: a persistent keyboard cannot be hidden, so
+ * the back button on Android left the chat instead of closing the menu. The
+ * keyboard icon beside the input field brings it back.
+ */
 export function mainMenuKeyboard(options: { admin?: boolean } = {}): Keyboard {
   const keyboard = new Keyboard();
   MENU_LAYOUT.forEach((row, index) => {
@@ -58,7 +64,7 @@ export function mainMenuKeyboard(options: { admin?: boolean } = {}): Keyboard {
     for (const key of row) keyboard.text(t(`menu.${key}`));
   });
   if (options.admin) keyboard.row().text(t('menu.admin'));
-  return keyboard.resized().persistent();
+  return keyboard.resized();
 }
 
 /** The menu button whose label is `text` in the active locale, if any. */
