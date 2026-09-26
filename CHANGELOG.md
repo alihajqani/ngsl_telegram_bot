@@ -9,6 +9,8 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-09-26
+
 ### Added
 
 - **`scripts/deploy.sh`** deploys the pushed `main` to the server: preflight
@@ -62,6 +64,16 @@ file says what changed and what an operator has to do about it.
   the league tables for good. Every update now clears it. After the token
   switch this covers every learner the new bot messaged before they started
   it.
+
+### Upgrade notes
+
+- No schema change.
+- Deploy with `scripts/deploy.sh`. The first run of `content.fill` after it
+  continues where the last one stopped.
+- After the token switch, the update announcement reaches only learners who
+  have already started the new bot; for the others Telegram refuses the send
+  and they are marked blocked until their next message, as the nightly sends
+  would do anyway.
 
 ## [3.3.0] - 2026-09-25
 
