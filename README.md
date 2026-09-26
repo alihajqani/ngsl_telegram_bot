@@ -198,6 +198,7 @@ Release history and upgrade steps are in [CHANGELOG.md](CHANGELOG.md).
 | `pnpm db:week-saturday` | One-off 2.1.0 upgrade: move stored leagues from Monday to Saturday weeks; idempotent |
 | `pnpm ingest` | Ingest the corpus. `--list`, `--channel=<slug>`, `--limit=<n>`, `--delay=<ms>`, `--refresh` |
 | `pnpm prewarm` | Queue video renders now. `--status` reports clip coverage, `--depth` targets the depth pool |
+| `pnpm rebind-clips` | Move every clip to a new bot token; see "Changing the bot token" |
 | `pnpm db:studio` | Browse the database |
 
 ## The corpus
@@ -250,6 +251,31 @@ every NGSL word in it. The only YouTube-facing step is the download, paced at
 
 In the bot, clips play one at a time with ⏮/⏭, the word in bold, 👍/👎 and a link
 to the moment on YouTube. Typing any English word or phrase searches them.
+
+### Changing the bot token
+
+A `file_id` belongs to the bot that minted it, so a new bot cannot send the
+clips the old one uploaded. Move them before changing `BOT_TOKEN`. First add
+the new bot as an admin to the vault group, the monitor group and
+`REQUIRED_CHANNEL`. Then, on the server:
+
+```bash
+# 1. Upload every clip again with the new bot (hours; resumable). The running
+#    bot keeps serving the old file_ids meanwhile.
+docker compose run -d --no-deps --name ngsl-rebind worker \
+  node apps/worker/dist/rebind-clips-cli.js --to-token=<new token>
+docker logs -f ngsl-rebind        # --status in place of a run shows progress
+
+# 2. The switch: stop both, move what was rendered meanwhile and write the new
+#    file_ids, then start them on the new token.
+docker compose stop bot worker
+docker compose run --rm --no-deps worker \
+  node apps/worker/dist/rebind-clips-cli.js --to-token=<new token> --apply
+# set BOT_TOKEN=<new token> in .env
+docker compose up -d --no-deps --force-recreate bot worker
+```
+
+Learners have to /start the new bot before it can message them.
 
 ## Security
 

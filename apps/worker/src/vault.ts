@@ -49,28 +49,39 @@ let lastUploadAt = 0;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * Upload a cut clip and return its reusable `file_id`.
- *
- * Dimensions, duration, a thumbnail and `supports_streaming` go with it, so
- * Telegram shows the right frame at once and starts playback before the file
- * has finished downloading. The caption is provenance, not decoration: it
- * makes the vault browsable when a clip needs auditing.
- */
-export async function uploadToVault(
-  clip: CutResult,
-  meta: { ytVideoId: string; startMs: number; endMs: number; sentence?: string },
-): Promise<string> {
-  const vault = config().media.vault;
-  if (!vault) throw new VaultNotConfiguredError();
+export interface VaultClipMeta {
+  ytVideoId: string;
+  startMs: number;
+  endMs: number;
+  sentence?: string;
+}
 
+/**
+ * A vault message's caption. Provenance, not decoration: it makes the vault
+ * browsable when a clip needs auditing.
+ */
+export function vaultCaption(meta: VaultClipMeta): string {
   const seconds = ((meta.endMs - meta.startMs) / 1000).toFixed(1);
-  const caption = [
+  return [
     `<code>${meta.ytVideoId}</code> ${(meta.startMs / 1000).toFixed(2)}s +${seconds}s`,
     meta.sentence ? escapeHtml(meta.sentence.slice(0, 300)) : undefined,
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/**
+ * Upload a cut clip and return its reusable `file_id`.
+ *
+ * Dimensions, duration, a thumbnail and `supports_streaming` go with it, so
+ * Telegram shows the right frame at once and starts playback before the file
+ * has finished downloading.
+ */
+export async function uploadToVault(clip: CutResult, meta: VaultClipMeta): Promise<string> {
+  const vault = config().media.vault;
+  if (!vault) throw new VaultNotConfiguredError();
+
+  const caption = vaultCaption(meta);
 
   for (let attempt = 1; ; attempt++) {
     const wait = lastUploadAt + UPLOAD_INTERVAL_MS - Date.now();

@@ -25,6 +25,11 @@ file says what changed and what an operator has to do about it.
   8 of 2,809 words had any. At about two minutes per batch of eight, all
   collocations take roughly half a day. `ENABLE_CONTENT_FILL=false` turns it
   off.
+- **`rebind-clips-cli.js`** moves every rendered clip to a new bot token. A
+  `file_id` belongs to the bot that minted it, so a new token could not send
+  any clip. Each clip is uploaded again with the new bot while the old one
+  keeps serving; `--apply` writes the new ids in one transaction at the
+  switch. Documented in README → "Changing the bot token".
 
 ### Changed
 

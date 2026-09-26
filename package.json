@@ -23,6 +23,7 @@
     "ingest": "tsx packages/media/src/cli.ts",
     "worker": "tsx apps/worker/src/index.ts",
     "prewarm": "tsx apps/worker/src/prewarm-cli.ts",
+    "rebind-clips": "tsx apps/worker/src/rebind-clips-cli.ts",
     "dev:bot": "pnpm --filter @ngsl/bot dev",
     "dev:worker": "pnpm --filter @ngsl/worker dev",
     "content": "tsx packages/content/src/cli.ts"

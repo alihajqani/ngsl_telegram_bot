@@ -19,6 +19,8 @@ export {
   saveAlignments,
   saveSegmentMedia,
   setVideoMediaStatus,
+  allClipMedia,
+  replaceClipFileIds,
   type ClipDeck,
   type ServableClip,
   type WordClipCoverage,
@@ -26,6 +28,7 @@ export {
   type VideoSegment,
   type AlignmentUpdate,
   type NewSegmentMedia,
+  type ClipMedia,
 } from './repositories/clips.repo.js';
 
 export {

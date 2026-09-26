@@ -591,3 +591,61 @@ export async function setVideoMediaStatus(
     .set({ mediaStatus: status, mediaRenderedAt: status === 'none' ? null : new Date() })
     .where(eq(video.id, videoId));
 }
+
+export interface ClipMedia {
+  segmentId: number;
+  telegramFileId: string;
+  ytVideoId: string;
+  startMs: number;
+  endMs: number;
+  width: number | null;
+  height: number | null;
+  sentence: string;
+}
+
+/** Every rendered clip, disabled ones too, with what uploading it again needs. */
+export async function allClipMedia(database: Database = db()): Promise<ClipMedia[]> {
+  return database
+    .select({
+      segmentId: segmentMedia.segmentId,
+      telegramFileId: segmentMedia.telegramFileId,
+      ytVideoId: video.ytVideoId,
+      startMs: segmentMedia.startMs,
+      endMs: segmentMedia.endMs,
+      width: segmentMedia.width,
+      height: segmentMedia.height,
+      sentence: segment.text,
+    })
+    .from(segmentMedia)
+    .innerJoin(segment, eq(segment.id, segmentMedia.segmentId))
+    .innerJoin(video, eq(video.id, segment.videoId))
+    .orderBy(asc(segmentMedia.segmentId));
+}
+
+/**
+ * Swap clips' file_ids in one transaction. Each row changes only while it
+ * still holds the id being replaced, so a clip re-rendered in the meantime
+ * keeps its newer one. Returns how many rows changed.
+ */
+export async function replaceClipFileIds(
+  changes: readonly { segmentId: number; from: string; to: string }[],
+  database: Database = db(),
+): Promise<number> {
+  return database.transaction(async (tx) => {
+    let updated = 0;
+    for (const change of changes) {
+      const rows = await tx
+        .update(segmentMedia)
+        .set({ telegramFileId: change.to })
+        .where(
+          and(
+            eq(segmentMedia.segmentId, change.segmentId),
+            eq(segmentMedia.telegramFileId, change.from),
+          ),
+        )
+        .returning({ segmentId: segmentMedia.segmentId });
+      updated += rows.length;
+    }
+    return updated;
+  });
+}
