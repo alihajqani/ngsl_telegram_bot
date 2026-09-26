@@ -7,11 +7,13 @@ import type * as Monitor from './monitor.js';
  */
 
 const fetchMock = vi.fn();
+const allThreads = { technical: 1, users: 2, features: 3, summary: 4, info: 5 };
+let threads: Partial<typeof allThreads> = allThreads;
 
 vi.mock('@ngsl/shared', () => ({
   config: () => ({
     telegram: { botToken: 'token' },
-    monitor: { groupId: -100, threads: { technical: 1, users: 2, features: 3, summary: 4 } },
+    monitor: { groupId: -100, threads },
   }),
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
   serializeError: (error: unknown) => ({ message: String(error) }),
@@ -31,6 +33,7 @@ const rejected = (status: number, body: string) => ({
 });
 
 beforeEach(() => {
+  threads = allThreads;
   fetchMock.mockReset();
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   vi.useFakeTimers();
@@ -147,5 +150,35 @@ describe('user and feature events', () => {
     expect(body.text).toBe(
       '🔎 <b>Sara &lt;3</b> @sara · Search\n<code>42</code> · &lt;b&gt;x&lt;/b&gt;',
     );
+  });
+});
+
+describe('log lines', () => {
+  async function sent(level: 'error' | 'warn' | 'info') {
+    const { reportLog } = await loadMonitor();
+    fetchMock.mockResolvedValue(ok());
+    reportLog(level, 'worker.main', 'hello');
+    await vi.advanceTimersByTimeAsync(1_500);
+    return fetchMock.mock.calls.map(
+      ([, init]) => JSON.parse((init as { body: string }).body) as Record<string, unknown>,
+    );
+  }
+
+  it('sends warnings and errors to the technical topic, with a notification', async () => {
+    for (const level of ['warn', 'error'] as const) {
+      fetchMock.mockClear();
+      expect(await sent(level)).toMatchObject([
+        { message_thread_id: 1, disable_notification: false },
+      ]);
+    }
+  });
+
+  it('sends info lines to their own topic, silently', async () => {
+    expect(await sent('info')).toMatchObject([{ message_thread_id: 5, disable_notification: true }]);
+  });
+
+  it('drops info lines when no info topic is set, rather than crowding technical', async () => {
+    threads = { technical: 1 };
+    expect(await sent('info')).toEqual([]);
   });
 });

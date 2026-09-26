@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   const cfg = config();
   log.info('Configuration loaded', { config: redactedConfig(cfg) });
 
-  // Mirror warnings and errors into the Telegram technical topic.
+  // Mirror log lines into the monitor: warnings and errors to technical, info to its own topic.
   if (isMonitorEnabled()) {
     addLogSink(reportLog);
     log.info('Telegram monitor enabled');

@@ -115,6 +115,7 @@ const envSchema = z
     MONITOR_THREAD_USERS: int(1, 2_147_483_647).optional(),
     MONITOR_THREAD_FEATURES: int(1, 2_147_483_647).optional(),
     MONITOR_THREAD_SUMMARY: int(1, 2_147_483_647).optional(),
+    MONITOR_THREAD_INFO: int(1, 2_147_483_647).optional(),
 
     // Corpus ingest + clip render pacing (the bot-detection blast radius)
     INGEST_SUBTITLE_CONCURRENCY: int(1, 8).default(2),
@@ -160,6 +161,7 @@ const envSchema = z
       e.MONITOR_THREAD_USERS,
       e.MONITOR_THREAD_FEATURES,
       e.MONITOR_THREAD_SUMMARY,
+      e.MONITOR_THREAD_INFO,
     ];
     if (!e.MONITOR_GROUP_ID && threads.some(Boolean)) {
       fail('MONITOR_GROUP_ID', 'required when any MONITOR_THREAD_* is set');
@@ -233,6 +235,7 @@ function shape(e: RawEnv) {
             users: e.MONITOR_THREAD_USERS,
             features: e.MONITOR_THREAD_FEATURES,
             summary: e.MONITOR_THREAD_SUMMARY,
+            info: e.MONITOR_THREAD_INFO,
           },
         }
       : undefined,

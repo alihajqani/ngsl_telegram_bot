@@ -14,7 +14,7 @@ import { config, createLogger, proxyFetch, serializeError } from '@ngsl/shared';
 
 const log = createLogger('monitor');
 
-export type Topic = 'technical' | 'users' | 'features' | 'summary';
+export type Topic = 'technical' | 'users' | 'features' | 'summary' | 'info';
 
 /**
  * Telegram rate-limits a single chat to roughly 20 messages/minute, and a busy
@@ -186,13 +186,21 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Mirror a structured log line into the technical topic. */
+/**
+ * Mirror a structured log line: warnings and errors into the technical topic,
+ * info into its own. Info is progress and routine events, about 35 lines an
+ * hour from the worker, and mixed in it buried the warnings. With no info
+ * topic set, info is not mirrored at all.
+ */
 export function reportLog(
   level: 'error' | 'warn' | 'info',
   module: string,
   message: string,
   context: Record<string, unknown> = {},
 ): void {
+  const topic: Topic = level === 'info' ? 'info' : 'technical';
+  if (topic === 'info' && threadFor('info') === undefined) return;
+
   const lines = [`${LEVEL_ICON[level] ?? ''} <b>${escapeHtml(message)}</b>`, `<code>${module}</code>`];
 
   const { error, ...rest } = context;
@@ -213,7 +221,7 @@ export function reportLog(
     lines.push(`<pre>${escapeHtml(stack)}</pre>`);
   }
 
-  post('technical', lines.join('\n'));
+  post(topic, lines.join('\n'));
 }
 
 /** The Telegram user fields the events need; grammY's `ctx.from` fits as is. */

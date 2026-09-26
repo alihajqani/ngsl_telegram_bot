@@ -9,6 +9,12 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **Info log lines have their own monitor topic.** They went to the technical
+  topic with the warnings and errors, about 35 an hour from the worker alone.
+  `MONITOR_THREAD_INFO` names the new topic; unset, info is not mirrored.
+
 ## [3.4.0] - 2026-09-26
 
 ### Added

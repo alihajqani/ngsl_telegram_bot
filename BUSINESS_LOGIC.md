@@ -1122,7 +1122,9 @@ locale. A 403/400 flags them as blocked so the next broadcast skips them.
 The broadcast prompt has a ❌ Cancel button; typing `/cancel` still works.
 
 Warnings and errors are mirrored into a Telegram technical topic when the monitor
-is enabled. Two more topics follow the learners:
+is enabled. Info lines go to a separate info topic (`MONITOR_THREAD_INFO`), so
+the worker's progress lines, about 35 an hour, do not bury the warnings; with
+no info topic set they are not mirrored. Two more topics follow the learners:
 
 - **users**: a learner's first update, with name, @handle, Telegram id and the new
   user count. "First" is the upsert that inserted their row (`xmax = 0` in its
