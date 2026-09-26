@@ -56,6 +56,12 @@ file says what changed and what an operator has to do about it.
   (6), or the model wrote on after a complete answer (7). An empty or
   cut-off answer is now asked for again, and text after a complete JSON value
   is ignored. The error now names Gemini's `finishReason` and token counts.
+- **A learner flagged as blocked stayed blocked after writing to the bot.**
+  The flag was cleared only when the user row was upserted, which happens
+  only without a cached session, so they got no reminders and dropped out of
+  the league tables for good. Every update now clears it. After the token
+  switch this covers every learner the new bot messaged before they started
+  it.
 
 ## [3.3.0] - 2026-09-25
 

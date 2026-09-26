@@ -94,13 +94,26 @@ export async function setLocale(
   await database.update(appUser).set({ locale }).where(eq(appUser.id, userId));
 }
 
+/**
+ * Record an update from the user: a count in the 24-slot histogram that drives
+ * peak-hour reminders, and the end of a `blocked` flag.
+ *
+ * The flag is cleared here, on every update, because `upsertUser` runs only
+ * when the session has no user id. A learner a bulk send flagged, and who then
+ * wrote to the bot with their session intact, stayed blocked for good: no
+ * reminders, and gone from the league tables. After a bot token switch that is
+ * every learner the new bot messaged before they had started it.
+ */
 export async function touchActivity(
   userId: number,
   hour: number,
   database: Database = db(),
 ): Promise<void> {
-  // Upsert into the 24-slot histogram that drives peak-hour reminders.
   await database.execute(sql`
+    with unblocked as (
+      update app_user set blocked = false, blocked_at = null
+      where id = ${userId} and blocked
+    )
     insert into activity_hour (user_id, hour, count)
     values (${userId}, ${hour}, 1)
     on conflict (user_id, hour) do update set count = activity_hour.count + 1

@@ -119,7 +119,7 @@ export async function broadcastAudience(
 
 /**
  * Flag a user who has blocked the bot, so every later bulk send skips them.
- * Cleared automatically by `upsertUser` on their next interaction.
+ * Cleared by `touchActivity` on their next update.
  */
 export async function flagBlocked(
   telegramId: number,

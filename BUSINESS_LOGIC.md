@@ -1028,8 +1028,9 @@ boundary would mean threading a locale through every job. These few strings are
 the cheaper trade.
 
 Send pacing 45 ms, to stay well under Telegram's ~30 msg/s. A 403 or 400 flags
-the user as blocked so later bulk sends skip them; the flag is cleared on their
-next interaction.
+the user as blocked so later bulk sends skip them; the flag is cleared by the
+next update they send (`touchActivity`, which runs on every update, whether or
+not their session is cached).
 
 ---
 
