@@ -730,11 +730,20 @@ Default model: `gemini-2.0-flash`; LLM timeout 60,000 ms.
 
 *Source: `packages/coach/src/{coach,contracts,prompts}.ts`, `apps/bot/src/handlers/writing.ts`*
 
-**1. Word selection.** 5 words drawn from the **top boxes** (`minBox = 4`), because
-the exercise is to write using words actually mastered, not ones met yesterday.
-Falls back to box 3 so the feature stays usable for a learner without five
-mastered words, rather than refusing outright. Below 3 words it throws
-`NotEnoughWordsError` and the user is told.
+**1. Word selection.** 5 words drawn from **every box, the first boxes
+favoured**, because writing with a word is how a shaky word becomes a mastered
+one. Each slot draws a box first, with weights 5, 4, 3, 2, 1 for boxes 1 to 5
+among the boxes that still have words, then a random word inside it. With every
+box stocked, about 60% of the words come from boxes 1 and 2, and a mastered word
+still turns up now and then so it stays in use.
+
+The box is weighted rather than the word: fifty words marked "I know this" sit
+in box 5, and weighted one by one they would crowd out the five the learner is
+still struggling with. Below 3 words in the whole deck it throws
+`NotEnoughWordsError` and the learner is sent to New words.
+
+The earlier rule (box 4 and 5 only, falling back to box 3) refused every learner
+whose words had not yet climbed that far, which in practice was most of them.
 
 **2. Replay of recurring mistakes.** The rolling memory's grammar patterns are
 shown **before** writing starts. The code's rationale: the point of tracking

@@ -35,7 +35,7 @@ export {
   getDueWords,
   recordReview,
   getProgressInputs,
-  getMasteredWords,
+  getWritingWords,
   countDeck,
   getWordLemma,
   getWordCard,

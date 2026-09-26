@@ -19,6 +19,15 @@ file says what changed and what an operator has to do about it.
   built with `drizzle-kit push` whose schema is current, so later migrations
   apply automatically. Refused on a database that already has a journal.
 
+### Changed
+
+- **Writing practice takes words from every box**, the first boxes favoured,
+  instead of only box 4 and 5 (box 3 as a fallback). Each word slot draws a box
+  first (weights 5, 4, 3, 2, 1 for boxes 1 to 5), then a word inside it, so a
+  full box 5 cannot crowd out the words still being learned. A learner needs 3
+  words in their deck, not 3 mastered ones; before, most learners were told
+  they had no words to write with.
+
 ## [3.3.0] - 2026-09-25
 
 ### Added

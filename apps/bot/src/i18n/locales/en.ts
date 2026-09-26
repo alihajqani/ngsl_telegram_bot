@@ -139,8 +139,8 @@ export const en: Locale = {
       '<i>Write between {min} and {max} words and send it here.</i>',
     memoryHeader: '🧠 <b>From your previous sessions</b>',
     notEnoughWords:
-      '📚 You do not have enough mastered words for writing practice yet.\n' +
-      'Review a little more so words reach the higher boxes.',
+      '📚 Writing practice needs at least 3 of your words.\n' +
+      'Learn a few from “📖 New words” first.',
     tooShort: '✏️ Your text is {words} words. Please write at least {min}.',
     tooLong: '✏️ Your text is {words} words. The maximum is {max}.',
     grading: '⏳ Reading your text...',

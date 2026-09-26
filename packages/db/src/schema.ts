@@ -228,7 +228,7 @@ export const userWord = pgTable(
     primaryKey({ columns: [t.userId, t.wordId] }),
     // The due-word query: WHERE user_id = $1 AND next_review_at <= now()
     index('idx_user_word_due').on(t.userId, t.nextReviewAt),
-    // Writing practice samples mastered words: WHERE user_id = $1 AND box >= 4
+    // Writing practice samples each box: WHERE user_id = $1, partitioned by box
     index('idx_user_word_box').on(t.userId, t.box),
     check('ck_user_word_box_range', sql`${t.box} between 1 and 5`),
   ],

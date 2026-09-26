@@ -1,8 +1,8 @@
 import {
   createWritingSession,
   findOpenSession,
-  getMasteredWords,
   getWritingSummary,
+  getWritingWords,
   saveAiSample,
   saveSubmission,
   upsertWritingSummary,
@@ -20,16 +20,11 @@ import { buildFeedbackPrompt, buildSamplePrompt, buildSummaryPrompt } from './pr
 
 const log = createLogger('coach');
 
-/** How many mastered words to inject into a prompt. */
+/** How many of the learner's words to inject into a prompt. */
 const TARGET_WORDS = 5;
 
-/**
- * Words are drawn from the top Leitner boxes. Falling back to box 3 keeps the
- * feature usable for a learner who has not yet mastered five words, rather than
- * refusing outright.
- */
-const PREFERRED_MIN_BOX = 4;
-const FALLBACK_MIN_BOX = 3;
+/** Below this a writing task has too little to practise. */
+const MIN_TARGET_WORDS = 3;
 
 export interface StartedSession {
   sessionId: number;
@@ -39,7 +34,7 @@ export interface StartedSession {
 
 export class NotEnoughWordsError extends Error {
   constructor(readonly have: number) {
-    super('The learner has too few mastered words for a writing session');
+    super('The learner has too few words for a writing session');
     this.name = 'NotEnoughWordsError';
   }
 }
@@ -52,11 +47,9 @@ export class NotEnoughWordsError extends Error {
  * LLM before they can start typing.
  */
 export async function startWritingSession(userId: number): Promise<StartedSession> {
-  let lemmas = await getMasteredWords(userId, TARGET_WORDS, PREFERRED_MIN_BOX);
-  if (lemmas.length < 3) {
-    lemmas = await getMasteredWords(userId, TARGET_WORDS, FALLBACK_MIN_BOX);
-  }
-  if (lemmas.length < 3) throw new NotEnoughWordsError(lemmas.length);
+  // Every box, the first ones favoured: see pickWritingWords in @ngsl/core.
+  const lemmas = await getWritingWords(userId, TARGET_WORDS);
+  if (lemmas.length < MIN_TARGET_WORDS) throw new NotEnoughWordsError(lemmas.length);
 
   const [sessionId, summary] = await Promise.all([
     createWritingSession(userId, lemmas),

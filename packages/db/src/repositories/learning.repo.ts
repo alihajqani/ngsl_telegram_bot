@@ -2,10 +2,12 @@ import {
   applyReview,
   initialState,
   isBox,
+  pickWritingWords,
+  toBox,
   type Box,
   type ReviewResult,
 } from '@ngsl/core';
-import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { db, type Database } from '../client.js';
 import { reviewEvent, userSettings, userWord, word } from '../schema.js';
 
@@ -301,26 +303,28 @@ export async function getProgressInputs(
 }
 
 /**
- * Mastered words, for the writing coach's smart injection.
+ * Words for a writing exercise, from every box, the first boxes favoured.
  *
- * Box 4 and 5 only — the requirement is to write using words you have actually
- * mastered, not ones you met yesterday.
+ * Only `limit` random words per box are read — enough for the pick in
+ * `@ngsl/core` to fill every slot from any one box — rather than the whole deck.
  */
-export async function getMasteredWords(
+export async function getWritingWords(
   userId: number,
   limit: number,
-  minBox = 4,
   database: Database = db(),
 ): Promise<string[]> {
-  const rows = await database
-    .select({ lemma: word.lemma })
-    .from(userWord)
-    .innerJoin(word, eq(word.id, userWord.wordId))
-    .where(and(eq(userWord.userId, userId), gte(userWord.box, minBox)))
-    .orderBy(sql`random()`)
-    .limit(limit);
+  const rows = await database.execute<Row<{ lemma: string; box: number }>>(sql`
+    select lemma, box
+      from (select w.lemma, uw.box,
+                   row_number() over (partition by uw.box order by random()) as n
+              from user_word uw
+              join word w on w.id = uw.word_id
+             where uw.user_id = ${userId}) per_box
+     where n <= ${limit}
+  `);
 
-  return rows.map((r) => r.lemma);
+  const candidates = [...rows].map((r) => ({ lemma: r.lemma, box: toBox(r.box) }));
+  return pickWritingWords(candidates, limit).map((c) => c.lemma);
 }
 
 /** Look up a single lemma. Needed after a review, when the word is no longer due. */

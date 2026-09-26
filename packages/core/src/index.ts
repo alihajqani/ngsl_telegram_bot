@@ -48,6 +48,8 @@ export {
 
 export { POINT_VALUES, pointsFor, type PointReason } from './points.js';
 
+export { pickWritingWords, WRITING_BOX_WEIGHT } from './writing.js';
+
 export {
   assignCohorts,
   resolveLeague,
