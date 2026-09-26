@@ -7,7 +7,7 @@ import {
   type Database,
   type WordNeedingContent,
 } from '@ngsl/db';
-import { completeJson, type ChatMessage } from '@ngsl/llm';
+import { AllKeysExhaustedError, completeJson, type ChatMessage } from '@ngsl/llm';
 import { createLogger } from '@ngsl/shared';
 import { z } from 'zod';
 
@@ -84,6 +84,11 @@ export interface GenerateOptions {
   /** Cap the run — useful for a smoke test before committing the GPU overnight. */
   limit?: number;
   batchSize?: number;
+  /**
+   * Epoch ms after which no new batch starts; the one in flight still finishes.
+   * A scheduled run ends on time this way and leaves the rest to the next one.
+   */
+  deadline?: number;
 }
 
 export interface GenerateStats {
@@ -117,6 +122,43 @@ function warnIfNothingMatched(
   });
 }
 
+/**
+ * Run `work` over the targets batch by batch, counting the failures.
+ *
+ * One bad batch must not abandon the remaining 2,000 words. Every API key
+ * being rate limited is the exception: each later batch would fail the same
+ * way, and each failure is a warning mirrored to the monitor topic.
+ */
+async function forEachBatch(
+  kind: string,
+  targets: readonly WordNeedingContent[],
+  options: GenerateOptions,
+  stats: GenerateStats,
+  work: (batch: WordNeedingContent[]) => Promise<void>,
+): Promise<void> {
+  const { batchSize = BATCH_SIZE, deadline } = options;
+
+  for (const batch of chunk(targets, batchSize)) {
+    if (deadline !== undefined && Date.now() >= deadline) {
+      log.info(`${kind} generation paused at its deadline`, { ...stats });
+      return;
+    }
+
+    try {
+      await work(batch);
+    } catch (error) {
+      stats.batchesFailed += 1;
+      if (error instanceof AllKeysExhaustedError) {
+        log.warn(`${kind} generation stopped: every API key is rate limited`, { ...stats });
+        return;
+      }
+      log.warn(`${kind} batch failed`, { words: batch.map((w) => w.lemma), error });
+    }
+
+    log.info(`${kind} generation progress`, { ...stats });
+  }
+}
+
 const listFor = (words: readonly WordNeedingContent[]): string =>
   words.map((w) => `- ${w.lemma}${w.definition ? ` (${w.definition})` : ''}`).join('\n');
 
@@ -131,7 +173,7 @@ export async function generateExamples(
   options: GenerateOptions = {},
   database: Database = db(),
 ): Promise<GenerateStats> {
-  const { limit, batchSize = BATCH_SIZE } = options;
+  const { limit } = options;
 
   const missing = await wordsMissingExamples(2, database);
   const targets = limit ? missing.slice(0, limit) : missing;
@@ -142,7 +184,7 @@ export async function generateExamples(
     batchesFailed: 0,
   };
 
-  for (const batch of chunk(targets, batchSize)) {
+  await forEachBatch('Example', targets, options, stats, async (batch) => {
     const messages: ChatMessage[] = [
       {
         role: 'system',
@@ -165,39 +207,31 @@ export async function generateExamples(
       },
     ];
 
-    try {
-      const result = await completeJson(messages, exampleBatchSchema, { temperature: 0.7 });
-      const byLemma = new Map(batch.map((w) => [w.lemma.toLowerCase(), w]));
-      const writtenBefore = stats.wordsWritten;
+    const result = await completeJson(messages, exampleBatchSchema, { temperature: 0.7 });
+    const byLemma = new Map(batch.map((w) => [w.lemma.toLowerCase(), w]));
+    const writtenBefore = stats.wordsWritten;
 
-      for (const entry of result.words) {
-        const target = byLemma.get(entry.word.toLowerCase().trim());
-        if (!target) continue;
+    for (const entry of result.words) {
+      const target = byLemma.get(entry.word.toLowerCase().trim());
+      if (!target) continue;
 
-        // Trust but verify: drop any sentence that does not contain its word.
-        const usable = entry.examples
-          .map((text) => text.trim())
-          .filter((text) => text.toLowerCase().includes(target.lemma.slice(0, 4).toLowerCase()))
-          .slice(0, 3);
-        if (usable.length === 0) continue;
+      // Trust but verify: drop any sentence that does not contain its word.
+      const usable = entry.examples
+        .map((text) => text.trim())
+        .filter((text) => text.toLowerCase().includes(target.lemma.slice(0, 4).toLowerCase()))
+        .slice(0, 3);
+      if (usable.length === 0) continue;
 
-        await saveLlmExamples(
-          target.wordId,
-          usable.map((text, ord) => ({ wordId: target.wordId, text, ord })),
-          database,
-        );
-        stats.wordsWritten += 1;
-        stats.itemsWritten += usable.length;
-      }
-      warnIfNothingMatched('Example', batch, result.words, stats.wordsWritten - writtenBefore);
-    } catch (error) {
-      // One bad batch must not abandon the remaining 2,000 words.
-      stats.batchesFailed += 1;
-      log.warn('Example batch failed', { words: batch.map((w) => w.lemma), error });
+      await saveLlmExamples(
+        target.wordId,
+        usable.map((text, ord) => ({ wordId: target.wordId, text, ord })),
+        database,
+      );
+      stats.wordsWritten += 1;
+      stats.itemsWritten += usable.length;
     }
-
-    log.info('Example generation progress', { ...stats });
-  }
+    warnIfNothingMatched('Example', batch, result.words, stats.wordsWritten - writtenBefore);
+  });
 
   return stats;
 }
@@ -213,7 +247,7 @@ export async function generateCollocations(
   options: GenerateOptions = {},
   database: Database = db(),
 ): Promise<GenerateStats> {
-  const { limit, batchSize = BATCH_SIZE } = options;
+  const { limit } = options;
 
   const missing = await wordsMissingCollocations(4, database);
   const targets = limit ? missing.slice(0, limit) : missing;
@@ -224,7 +258,7 @@ export async function generateCollocations(
     batchesFailed: 0,
   };
 
-  for (const batch of chunk(targets, batchSize)) {
+  await forEachBatch('Collocation', targets, options, stats, async (batch) => {
     const messages: ChatMessage[] = [
       {
         role: 'system',
@@ -252,40 +286,33 @@ export async function generateCollocations(
       },
     ];
 
-    try {
-      const result = await completeJson(messages, collocationBatchSchema, { temperature: 0.5 });
-      const byLemma = new Map(batch.map((w) => [w.lemma.toLowerCase(), w]));
-      const writtenBefore = stats.wordsWritten;
+    const result = await completeJson(messages, collocationBatchSchema, { temperature: 0.5 });
+    const byLemma = new Map(batch.map((w) => [w.lemma.toLowerCase(), w]));
+    const writtenBefore = stats.wordsWritten;
 
-      for (const entry of result.words) {
-        const target = byLemma.get(entry.word.toLowerCase().trim());
-        if (!target) continue;
+    for (const entry of result.words) {
+      const target = byLemma.get(entry.word.toLowerCase().trim());
+      if (!target) continue;
 
-        const phrases = entry.phrases.slice(0, 5);
-        if (phrases.length === 0) continue;
+      const phrases = entry.phrases.slice(0, 5);
+      if (phrases.length === 0) continue;
 
-        await saveCollocations(
-          target.wordId,
-          phrases.map((p, ord) => ({
-            wordId: target.wordId,
-            phrase: p.phrase.trim(),
-            meaning: p.meaning.trim(),
-            kind: p.kind ?? 'collocation',
-            ord,
-          })),
-          database,
-        );
-        stats.wordsWritten += 1;
-        stats.itemsWritten += phrases.length;
-      }
-      warnIfNothingMatched('Collocation', batch, result.words, stats.wordsWritten - writtenBefore);
-    } catch (error) {
-      stats.batchesFailed += 1;
-      log.warn('Collocation batch failed', { words: batch.map((w) => w.lemma), error });
+      await saveCollocations(
+        target.wordId,
+        phrases.map((p, ord) => ({
+          wordId: target.wordId,
+          phrase: p.phrase.trim(),
+          meaning: p.meaning.trim(),
+          kind: p.kind ?? 'collocation',
+          ord,
+        })),
+        database,
+      );
+      stats.wordsWritten += 1;
+      stats.itemsWritten += phrases.length;
     }
-
-    log.info('Collocation generation progress', { ...stats });
-  }
+    warnIfNothingMatched('Collocation', batch, result.words, stats.wordsWritten - writtenBefore);
+  });
 
   return stats;
 }

@@ -136,6 +136,8 @@ const envSchema = z
     ENABLE_REMINDERS: bool.default('true'),
     /** After a deploy of a new version, tell every learner once (worker startup). */
     ENABLE_RELEASE_ANNOUNCEMENT: bool.default('true'),
+    /** The worker fills missing collocations and examples with the LLM, half an hour at a time. */
+    ENABLE_CONTENT_FILL: bool.default('true'),
   })
   .superRefine((e, ctx) => {
     const fail = (path: string, message: string) =>
@@ -247,6 +249,7 @@ function shape(e: RawEnv) {
       prewarmEnabled: e.ENABLE_PREWARM,
       remindersEnabled: e.ENABLE_REMINDERS,
       releaseAnnouncementEnabled: e.ENABLE_RELEASE_ANNOUNCEMENT,
+      contentFillEnabled: e.ENABLE_CONTENT_FILL,
     },
   } as const;
 }

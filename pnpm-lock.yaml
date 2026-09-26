@@ -74,6 +74,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@ngsl/content':
+        specifier: workspace:*
+        version: link:../../packages/content
       '@ngsl/core':
         specifier: workspace:*
         version: link:../../packages/core

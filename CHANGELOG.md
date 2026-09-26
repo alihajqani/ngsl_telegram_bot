@@ -18,6 +18,13 @@ file says what changed and what an operator has to do about it.
 - **`migrate.js --baseline`** records every migration as applied on a database
   built with `drizzle-kit push` whose schema is current, so later migrations
   apply automatically. Refused on a database that already has a journal.
+- **The worker fills missing collocations and examples on its own.** Every
+  half hour a `content.fill` run works for up to 29 minutes, collocations
+  first, then examples, and the next run carries on where it stopped. Before,
+  this was a command run by hand; its one full run saved no collocations, and
+  8 of 2,809 words had any. At about two minutes per batch of eight, all
+  collocations take roughly half a day. `ENABLE_CONTENT_FILL=false` turns it
+  off.
 
 ### Changed
 
@@ -27,6 +34,10 @@ file says what changed and what an operator has to do about it.
   full box 5 cannot crowd out the words still being learned. A learner needs 3
   words in their deck, not 3 mastered ones; before, most learners were told
   they had no words to write with.
+- A content pass stops when every API key is rate limited, instead of failing
+  each remaining batch and sending a warning for each to the monitor.
+- `scripts/local-up.sh --content` now only mines the corpus; the worker does
+  the LLM part.
 
 ## [3.3.0] - 2026-09-25
 

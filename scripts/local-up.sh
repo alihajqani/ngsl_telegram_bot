@@ -23,8 +23,9 @@ Usage: scripts/local-up.sh [options]
   --no-aligner   Skip the forced-alignment service (about 2 GB of image and
                  1 GB of RAM); clips are then cut on pauses instead
   --ingest=N     After start, index N new videos from every enabled channel
-  --content      After start, generate examples and collocations for every
-                 word in the background (hours; resumable)
+  --content      After start, mine example sentences from the indexed corpus
+                 (the worker generates collocations and the missing examples
+                 with the LLM on its own)
   --reset        Delete this project's local volumes first: database, Redis,
                  clip scratch. Asks for confirmation
   --yes          Do not ask (with --reset)
@@ -226,13 +227,9 @@ if [[ "$ingest" -gt 0 ]]; then
 fi
 
 if $content; then
-  step "Generating examples and collocations in the background"
-  if docker ps -a --format '{{.Names}}' | grep -qx ngsl-content; then
-    warn "a content run (ngsl-content) already exists; follow it with: docker logs -f ngsl-content"
-  else
-    compose run -d --rm --no-deps --name ngsl-content worker node packages/content/dist/cli.js all >/dev/null
-    ok "started; follow it with: docker logs -f ngsl-content"
-  fi
+  step "Mining example sentences from the corpus"
+  compose exec -T worker node packages/content/dist/cli.js mine || warn "mining stopped early; see the output above"
+  ok "the worker generates collocations and the missing examples on its own (content.fill)"
 fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────

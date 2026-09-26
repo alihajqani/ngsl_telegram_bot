@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../packages/shared" },
     { "path": "../../packages/core" },
+    { "path": "../../packages/content" },
     { "path": "../../packages/db" },
     { "path": "../../packages/media" },
     { "path": "../../packages/queue" },

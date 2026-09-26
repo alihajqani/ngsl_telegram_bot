@@ -699,9 +699,19 @@ Operating rules:
 
 - **Batch, offline, never on the request path.** The bot keeps working when the
   LLM is down, and cost does not scale with users.
+- **The worker fills the gaps on its own** (`content.fill`, see §13): every half
+  hour a run works for up to 29 minutes, collocations first, then examples.
+  Both passes select only the words still missing content, so a run cut short
+  by a restart, a deploy or a failed batch is simply continued by the next one.
+  This replaced a command run by hand: its one full run saved no collocations,
+  and nothing ran it again. At about two minutes per batch
+  with a thinking model, every word's collocations take roughly half a day.
+  Mining stays a manual command (`content mine`).
 - 8 words per request: 2,809 individual calls is an order of magnitude more time
   and money than ~350 batched ones.
-- A failed batch does not abandon the remaining words.
+- A failed batch does not abandon the remaining words. **Every API key rate
+  limited** is the exception: the pass stops, because every later batch would
+  fail the same way and each failure is a warning mirrored to the monitor.
 - **Output is verified:** a generated sentence not containing its target word is
   dropped.
 - The prompt requires surrounding vocabulary to be high-frequency, the same
@@ -1037,6 +1047,13 @@ These are **durable repeatable queue jobs, not in-process cron**. Per the code,
 v1 ran eight cron jobs inside the bot: nothing survived a restart, two instances
 would double-fire, and a long job blocked user traffic. Worker concurrency for
 scheduled work is 1.
+
+`content.fill` (`*/30 * * * *`, *source: `apps/worker/src/workers/content-fill.worker.ts`*)
+runs on a queue of its own, `content-fill`, because a half-hour run on the
+schedule queue would hold back the reminders and the boards. On shutdown the
+worker does not wait for it: each word is saved as its batch returns, and the
+interrupted run is picked up again as a stalled job. `ENABLE_CONTENT_FILL=false`
+turns it off.
 
 ### Weekly video health sync
 

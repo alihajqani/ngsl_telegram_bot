@@ -66,7 +66,7 @@ Options:
 | `--no-bot` | Everything except the bot. Use it when the same `BOT_TOKEN` runs on a server: two processes polling one token keep cutting each other off |
 | `--no-aligner` | Skip the aligner (≈2 GB image, ≈1 GB RAM); clips are then cut on pauses |
 | `--ingest=N` | After start, index N new videos from every enabled channel |
-| `--content` | After start, generate examples and collocations for every word in the background (hours, resumable): `docker logs -f ngsl-content` |
+| `--content` | After start, mine example sentences from the indexed corpus. The worker generates collocations and the missing examples with the LLM on its own, half an hour at a time |
 | `--reset` | Delete this project's local volumes first (database, Redis, clip scratch); asks for confirmation, `--yes` skips it |
 
 A fresh machine therefore goes from nothing to a working bot with clips like this:

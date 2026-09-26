@@ -6,6 +6,7 @@ import { closeConnection, closeVideoRenderQueue, runPrewarm } from '@ngsl/queue'
 import { isVaultConfigured } from './vault.js';
 import { startVideoRenderWorker } from './workers/video-render.worker.js';
 import { startScheduler } from './scheduler.js';
+import { startContentFillWorker } from './workers/content-fill.worker.js';
 import { announceRelease, appVersion } from './jobs/release-announcement.js';
 import { flushMonitor, isMonitorEnabled, reportLog } from '@ngsl/monitor';
 
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
     workers.push(startVideoRenderWorker());
   }
   workers.push(await startScheduler());
+  const contentFill = cfg.jobs.contentFillEnabled ? await startContentFillWorker() : undefined;
 
   if (cfg.jobs.prewarmEnabled && isVaultConfigured()) {
     // Breadth on boot so a fresh deploy starts closing gaps immediately.
@@ -57,7 +59,9 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     log.info('Draining workers', { signal });
     // close() waits for in-flight jobs; each clip is saved as soon as it is uploaded.
-    await Promise.all(workers.map((w) => w.close()));
+    // A content run can take half an hour, so it is not waited for: every word
+    // is saved as its batch returns, and the stalled run is picked up again.
+    await Promise.all([...workers.map((w) => w.close()), contentFill?.close(true)]);
     await closeVideoRenderQueue();
     await closeConnection();
     await flushMonitor();
@@ -67,7 +71,7 @@ async function main(): Promise<void> {
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
-  log.info('Worker ready', { queues: workers.length });
+  log.info('Worker ready', { queues: workers.length + (contentFill ? 1 : 0) });
 }
 
 main().catch((error: unknown) => {

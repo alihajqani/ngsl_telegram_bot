@@ -10,6 +10,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@ngsl/content": "workspace:*",
     "@ngsl/core": "workspace:*",
     "@ngsl/db": "workspace:*",
     "@ngsl/game": "workspace:*",
