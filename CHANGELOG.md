@@ -51,6 +51,11 @@ file says what changed and what an operator has to do about it.
   A learner's first update now posts to users (name, @handle, id, user
   count), and features gets one line per new-word session, review session,
   word clip deck, clip search and graded writing.
+- **Fewer collocation batches fail.** About 4 of every 10 failed, for three
+  reasons: Gemini answered with nothing (27 of 40), the answer was cut off
+  (6), or the model wrote on after a complete answer (7). An empty or
+  cut-off answer is now asked for again, and text after a complete JSON value
+  is ignored. The error now names Gemini's `finishReason` and token counts.
 
 ## [3.3.0] - 2026-09-25
 

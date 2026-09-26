@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { geminiAnswerText, withServerRetry } from './provider.js';
+import { geminiAnswerText, geminiIncomplete, withServerRetry } from './provider.js';
 
 describe('geminiAnswerText', () => {
   it('keeps only the answer, dropping the reasoning of a thinking model', () => {
@@ -61,5 +61,33 @@ describe('withServerRetry', () => {
       expect((await withServerRetry(fn, [0, 0])).status).toBe(status);
       expect(calls).toHaveLength(1);
     }
+  });
+});
+
+describe('geminiIncomplete', () => {
+  const answer = (text: string, finishReason: string) => ({
+    candidates: [
+      { finishReason, content: { parts: [{ thought: true, text: 'thinking' }, { text }] } },
+    ],
+    usageMetadata: { thoughtsTokenCount: 8000, candidatesTokenCount: 192 },
+  });
+
+  it('accepts an answer that finished normally', () => {
+    const payload = answer('{"a":1}', 'STOP');
+    expect(geminiIncomplete(payload, geminiAnswerText(payload))).toBeUndefined();
+  });
+
+  it('names the finish reason and token counts of an empty answer', () => {
+    const payload = answer('', 'MAX_TOKENS');
+    expect(geminiIncomplete(payload, geminiAnswerText(payload))).toBe(
+      'no answer (finishReason MAX_TOKENS, thoughtsTokenCount 8000, candidatesTokenCount 192)',
+    );
+  });
+
+  it('rejects an answer cut off at the token limit even when it has text', () => {
+    const payload = answer('{"words":[{"word":"law"', 'MAX_TOKENS');
+    expect(geminiIncomplete(payload, geminiAnswerText(payload))).toMatch(
+      /^answer cut off \(finishReason MAX_TOKENS/,
+    );
   });
 });

@@ -1,9 +1,11 @@
 export {
   complete,
   geminiAnswerText,
+  geminiIncomplete,
   withServerRetry,
   resetProvider,
   AllKeysExhaustedError,
+  LlmIncompleteError,
   LlmUnavailableError,
   type ChatMessage,
   type CompletionOptions,

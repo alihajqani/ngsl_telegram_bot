@@ -731,6 +731,15 @@ Operating rules:
   warning rather than counted as a quiet success.
 - Gemini `5xx` responses are retried twice (after 2 s and 6 s) before the batch
   counts as failed; a bare JSON array is accepted in place of `{"words": [...]}`.
+- **An empty or cut-off answer is asked for again**, like malformed JSON (two
+  attempts in all). Gemma 4 returned one of these for about a third of the
+  collocation batches, which then failed without a retry. Cut off means
+  `finishReason` `MAX_TOKENS` (vLLM: `length`). The error names the finish
+  reason and the token counts, so a failure shows whether reasoning used up
+  the budget.
+- **The first complete JSON value is the answer.** The model sometimes
+  finished the JSON and wrote on; parsing everything up to the last brace
+  failed those batches although their answer was whole.
 
 Default model: `gemini-2.0-flash`; LLM timeout 60,000 ms.
 

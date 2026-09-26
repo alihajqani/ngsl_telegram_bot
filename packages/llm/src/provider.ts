@@ -39,6 +39,18 @@ export class LlmUnavailableError extends Error {
   }
 }
 
+/**
+ * The provider answered, but the answer is empty or was cut off at the token
+ * limit. Unlike the other errors this belongs to one generation, so asking
+ * again can succeed.
+ */
+export class LlmIncompleteError extends LlmUnavailableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LlmIncompleteError';
+  }
+}
+
 /** Round-robin cursor, so load spreads across keys instead of burning the first. */
 let keyCursor = 0;
 
@@ -57,7 +69,11 @@ async function post(url: string, body: unknown, headers: Record<string, string> 
 }
 
 interface GeminiPayload {
-  candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
+  candidates?: {
+    finishReason?: string;
+    content?: { parts?: { text?: string; thought?: boolean }[] };
+  }[];
+  usageMetadata?: { thoughtsTokenCount?: number; candidatesTokenCount?: number };
 }
 
 /**
@@ -74,6 +90,24 @@ export function geminiAnswerText(payload: GeminiPayload): string {
       ?.filter((part) => part.thought !== true)
       .map((part) => part.text ?? '')
       .join('') ?? ''
+  );
+}
+
+/**
+ * Why a Gemini answer is unusable, or undefined when it is fine: empty, or cut
+ * off at the output limit. The finish reason and token counts go into the
+ * message, so a failure says whether the reasoning used up the budget.
+ */
+export function geminiIncomplete(payload: GeminiPayload, text: string): string | undefined {
+  const finishReason = payload.candidates?.[0]?.finishReason ?? 'none';
+  const empty = text.trim() === '';
+  if (!empty && finishReason !== 'MAX_TOKENS') return undefined;
+
+  const usage = payload.usageMetadata;
+  return (
+    `${empty ? 'no answer' : 'answer cut off'} (finishReason ${finishReason}, ` +
+    `thoughtsTokenCount ${usage?.thoughtsTokenCount ?? 0}, ` +
+    `candidatesTokenCount ${usage?.candidatesTokenCount ?? 0})`
   );
 }
 
@@ -146,8 +180,10 @@ async function callGemini(messages: ChatMessage[], options: CompletionOptions): 
     }
 
     keyCursor = (keyCursor + attempt + 1) % apiKeys.length;
-    const text = geminiAnswerText((await response.json()) as GeminiPayload);
-    if (text.trim() === '') throw new LlmUnavailableError('Gemini returned an empty completion');
+    const payload = (await response.json()) as GeminiPayload;
+    const text = geminiAnswerText(payload);
+    const problem = geminiIncomplete(payload, text);
+    if (problem) throw new LlmIncompleteError(`Gemini returned ${problem}`);
     return text;
   }
 
@@ -174,9 +210,16 @@ async function callVllm(messages: ChatMessage[], options: CompletionOptions): Pr
     throw new LlmUnavailableError(`vLLM responded ${response.status}: ${await response.text()}`);
   }
 
-  const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-  const text = payload.choices?.[0]?.message?.content ?? '';
-  if (text.trim() === '') throw new LlmUnavailableError('vLLM returned an empty completion');
+  const payload = (await response.json()) as {
+    choices?: { finish_reason?: string; message?: { content?: string } }[];
+  };
+  const choice = payload.choices?.[0];
+  const text = choice?.message?.content ?? '';
+  if (text.trim() === '' || choice?.finish_reason === 'length') {
+    const what = text.trim() === '' ? 'no answer' : 'answer cut off';
+    const reason = choice?.finish_reason ?? 'none';
+    throw new LlmIncompleteError(`vLLM returned ${what} (finish_reason ${reason})`);
+  }
   return text;
 }
 

@@ -32,3 +32,22 @@ describe('extractJson', () => {
     expect(extractJson(nested)).toBe(nested);
   });
 });
+
+describe('extractJson with text after the payload', () => {
+  it('keeps the first complete value when the model writes on after it', () => {
+    // Observed from gemma-4: a complete batch, then more output. The old
+    // first-brace-to-last-brace slice fed both to JSON.parse and lost the batch.
+    const payload = '{"words":[{"word":"law","phrases":[]}]}';
+    expect(extractJson(`${payload}\n{"words":[{"word":"law"`)).toBe(payload);
+    expect(extractJson(`${payload}]}`)).toBe(payload);
+  });
+
+  it('is not fooled by brackets inside strings', () => {
+    const payload = '{"a":"} ] \\" {","b":[1]}';
+    expect(extractJson(`${payload} trailing }`)).toBe(payload);
+  });
+
+  it('falls back to the bracketed span when the value never closes', () => {
+    expect(extractJson('{"words":[{"word":"law"},{"word":')).toBe('{"words":[{"word":"law"}');
+  });
+});
