@@ -725,8 +725,11 @@ Operating rules:
 - **Only the answer is read from a thinking model.** Gemma 4 and Gemini 2.5
   return their reasoning as parts flagged `thought: true`; those are dropped
   (`geminiAnswerText`). Joined in, the reasoning's placeholder draft of the JSON
-  was parsed instead of the answer and every word was silently discarded. The
-  output budget defaults to 8,192 tokens so reasoning cannot crowd out a batch.
+  was parsed instead of the answer and every word was silently discarded.
+- **The output budget is the model's own limit** (32,768 tokens for gemma-4).
+  Gemini counts the reasoning against it, before the answer: at 8,192 one batch
+  ran out while still reasoning on every run. The writing coach sets no budget
+  of its own for the same reason; the request timeout bounds the time.
 - A batch that parses but matches none of the requested words is logged as a
   warning rather than counted as a quiet success.
 - Gemini `5xx` responses are retried twice (after 2 s and 6 s) before the batch

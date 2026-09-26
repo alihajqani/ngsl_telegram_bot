@@ -112,11 +112,12 @@ export function geminiIncomplete(payload: GeminiPayload, text: string): string |
 }
 
 /**
- * Output budget. A thinking model spends part of it reasoning before it writes
- * the answer, so a batch of eight words' JSON needs far more than the answer's
- * own ~1,500 tokens.
+ * Output budget: gemma-4's own output limit. Gemini counts a thinking model's
+ * reasoning against it, before the answer. At 8,192 one batch of eight words
+ * ran out while still reasoning (thoughtsTokenCount 8,189, no answer) on every
+ * run. The request timeout, not this cap, bounds how long a call takes.
  */
-const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+const DEFAULT_MAX_OUTPUT_TOKENS = 32_768;
 
 /** Waits before each retry of a server error: Gemini's 500s are usually momentary. */
 const SERVER_RETRY_DELAYS_MS = [2_000, 6_000];

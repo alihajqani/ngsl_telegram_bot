@@ -26,6 +26,10 @@ const TARGET_WORDS = 5;
 /** Below this a writing task has too little to practise. */
 const MIN_TARGET_WORDS = 3;
 
+// No call here sets `maxOutputTokens`. A thinking model reasons inside that
+// budget before it answers, so the 512 and 2,048 these calls once set could be
+// spent on reasoning alone; the provider's default is the model's own limit.
+
 export interface StartedSession {
   sessionId: number;
   lemmas: string[];
@@ -71,7 +75,6 @@ export async function primeSample(sessionId: number, lemmas: readonly string[]):
   try {
     const result = await completeJson(buildSamplePrompt(lemmas), sampleSchema, {
       temperature: 0.8,
-      maxOutputTokens: 512,
     });
     await saveAiSample(sessionId, result.text.trim());
     log.debug('Primed independent sample', { sessionId });
@@ -90,7 +93,6 @@ export async function ensureSample(
   try {
     const result = await completeJson(buildSamplePrompt(lemmas), sampleSchema, {
       temperature: 0.8,
-      maxOutputTokens: 512,
     });
     const text = result.text.trim();
     await saveAiSample(sessionId, text);
@@ -130,7 +132,7 @@ export async function submitWriting(
       priorPatterns: summary?.grammarPatterns,
     }),
     feedbackSchema,
-    { temperature: 0.3, maxOutputTokens: 2048 },
+    { temperature: 0.3 },
   );
 
   const sample = await ensureSample(session.id, session.targetLemmas, session.aiSampleText);
@@ -164,7 +166,7 @@ export async function updateMemory(
         : undefined,
     }),
     summarySchema,
-    { temperature: 0.2, maxOutputTokens: 512 },
+    { temperature: 0.2 },
   );
 
   await upsertWritingSummary(userId, {

@@ -14,6 +14,12 @@ file says what changed and what an operator has to do about it.
 - **Info log lines have their own monitor topic.** They went to the technical
   topic with the warnings and errors, about 35 an hour from the worker alone.
   `MONITOR_THREAD_INFO` names the new topic; unset, info is not mirrored.
+- **The LLM output budget is now 32,768 tokens**, gemma-4's own limit, up
+  from 8,192. Gemini counts the reasoning against it: after 3.4.0 every
+  remaining collocation failure was `MAX_TOKENS` with 8,189 reasoning tokens
+  and no answer, four of five the same batch at the start of each run. The
+  writing coach no longer caps its calls at 512 and 2,048 tokens, which the
+  reasoning alone could use up.
 
 ## [3.4.0] - 2026-09-26
 
