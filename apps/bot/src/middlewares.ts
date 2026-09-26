@@ -1,6 +1,8 @@
-import { touchActivity, upsertUser } from '@ngsl/db';
+import { countUsers, touchActivity, upsertUser } from '@ngsl/db';
+import { reportUserJoined } from '@ngsl/monitor';
 import { config, createLogger } from '@ngsl/shared';
 import type { NextFunction } from 'grammy';
+import type { User } from 'grammy/types';
 import { detectLocale, runWithLocale, t } from './i18n/i18n.js';
 import { channelPromptKeyboard } from './keyboards.js';
 import type { BotContext } from './types.js';
@@ -29,9 +31,17 @@ export async function localeContext(ctx: BotContext, next: NextFunction): Promis
     ctx.session.userId = user.id;
     ctx.session.locale = user.locale;
     locale = user.locale;
+    if (user.created) reportNewUser(from);
   }
 
   return runWithLocale(locale, () => next());
+}
+
+/** To the monitor's users topic, off the update's path: a failed count only costs the event. */
+function reportNewUser(from: User): void {
+  void countUsers()
+    .then((total) => reportUserJoined(from, total))
+    .catch((error: unknown) => log.debug('New user report failed', { error }));
 }
 
 /** Fire-and-forget activity histogram, feeding peak-hour reminders later. */

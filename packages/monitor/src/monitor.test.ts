@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Monitor from './monitor.js';
 
 /**
  * The monitor is a logging transport: the only behaviour that really matters is
@@ -109,5 +110,42 @@ describe('monitor delivery', () => {
 
     await flushMonitor();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('user and feature events', () => {
+  const sara = { id: 42, first_name: 'Sara <3', username: 'sara' };
+
+  async function sentAfter(emit: (monitor: typeof Monitor) => void) {
+    const monitor = await loadMonitor();
+    fetchMock.mockResolvedValue(ok());
+    emit(monitor);
+    await vi.advanceTimersByTimeAsync(1_500);
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    return JSON.parse(init.body) as { message_thread_id: number; text: string };
+  }
+
+  it('posts a new user to the users topic with their handle, id and the new total', async () => {
+    const body = await sentAfter(({ reportUserJoined }) => reportUserJoined(sara, 120));
+
+    expect(body.message_thread_id).toBe(2);
+    expect(body.text).toBe('👤 <b>Sara &lt;3</b> @sara joined\n<code>42</code> · 120 users');
+  });
+
+  it('posts a feature use to the features topic with its detail', async () => {
+    const body = await sentAfter(({ reportFeature }) =>
+      reportFeature('writing', { id: 7, first_name: 'Ali' }, '64 words · score 7'),
+    );
+
+    expect(body.message_thread_id).toBe(3);
+    expect(body.text).toBe('✍️ <b>Ali</b> · Writing\n<code>7</code> · 64 words · score 7');
+  });
+
+  it('escapes what the learner typed', async () => {
+    const body = await sentAfter(({ reportFeature }) => reportFeature('search', sara, '<b>x</b>'));
+
+    expect(body.text).toBe(
+      '🔎 <b>Sara &lt;3</b> @sara · Search\n<code>42</code> · &lt;b&gt;x&lt;/b&gt;',
+    );
   });
 });

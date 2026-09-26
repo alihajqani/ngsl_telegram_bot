@@ -26,6 +26,8 @@ vi.mock('@ngsl/db', () => ({
 }));
 vi.mock('@ngsl/queue', () => ({ startNewWordSession, startReviewSession: vi.fn() }));
 vi.mock('@ngsl/game', () => ({ recordActivity }));
+const reportFeature = vi.fn();
+vi.mock('@ngsl/monitor', () => ({ reportFeature }));
 vi.mock('@ngsl/shared', () => ({
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
@@ -118,6 +120,14 @@ describe('new-word session', () => {
     expect(sent.at(-1)?.text).toContain('+30 points');
     expect(recordActivity).toHaveBeenCalledTimes(3);
     expect(session.newWordDeck).toBeUndefined();
+  });
+
+  it('reports the session once to the monitor, not once per card', async () => {
+    await run(menuTap());
+    await run(nextTap('nx:1'));
+
+    expect(reportFeature).toHaveBeenCalledTimes(1);
+    expect(reportFeature).toHaveBeenCalledWith('newwords', from, '3 words');
   });
 
   it('ignores a second tap on a card it has already moved past', async () => {

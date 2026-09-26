@@ -69,10 +69,12 @@ export {
 
 export {
   upsertUser,
+  countUsers,
   findUserByTelegramId,
   setLocale,
   touchActivity,
   type AppUserRecord,
+  type UpsertedUser,
 } from './repositories/users.repo.js';
 
 export {

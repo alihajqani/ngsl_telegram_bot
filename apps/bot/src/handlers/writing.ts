@@ -13,6 +13,7 @@ import {
   MIN_WORDS,
   type WritingFeedback,
 } from '@ngsl/coach';
+import { reportFeature } from '@ngsl/monitor';
 import { createLogger } from '@ngsl/shared';
 import { InlineKeyboard } from 'grammy';
 import { escapeHtml, t } from '../i18n/i18n.js';
@@ -140,6 +141,9 @@ export async function writingSubmissionHandler(ctx: BotContext): Promise<void> {
 
   await awardQuietly(ctx, 'writing_submitted');
   log.info('Writing session graded', { userId, score: result.feedback.score });
+  if (ctx.from) {
+    reportFeature('writing', ctx.from, `${words} words · score ${result.feedback.score}`);
+  }
 }
 
 export async function cancelWritingHandler(ctx: BotContext): Promise<void> {

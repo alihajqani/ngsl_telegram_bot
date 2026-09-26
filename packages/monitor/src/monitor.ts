@@ -216,12 +216,37 @@ export function reportLog(
   post('technical', lines.join('\n'));
 }
 
-export function reportUserJoined(name: string, telegramId: number, total: number): void {
-  post('users', `👤 <b>${escapeHtml(name)}</b> joined\n<code>${telegramId}</code> · ${total} users`);
+/** The Telegram user fields the events need; grammY's `ctx.from` fits as is. */
+export interface MonitorUser {
+  id: number;
+  first_name: string;
+  username?: string;
 }
 
-export function reportFeature(feature: string, name: string, detail = ''): void {
-  post('features', `✨ <b>${escapeHtml(name)}</b> used <code>${feature}</code> ${escapeHtml(detail)}`);
+/** Name and @handle: first names repeat, and the handle is what finds someone. */
+function who(user: MonitorUser): string {
+  const handle = user.username ? ` @${escapeHtml(user.username)}` : '';
+  return `<b>${escapeHtml(user.first_name)}</b>${handle}`;
+}
+
+export function reportUserJoined(user: MonitorUser, total: number): void {
+  post('users', `👤 ${who(user)} joined\n<code>${user.id}</code> · ${total} users`);
+}
+
+const FEATURES = {
+  newwords: ['📖', 'New words'],
+  review: ['🔁', 'Review'],
+  clips: ['🎬', 'Clips'],
+  search: ['🔎', 'Search'],
+  writing: ['✍️', 'Writing'],
+} as const;
+
+export type Feature = keyof typeof FEATURES;
+
+export function reportFeature(feature: Feature, user: MonitorUser, detail = ''): void {
+  const [icon, label] = FEATURES[feature];
+  const suffix = detail ? ` · ${escapeHtml(detail)}` : '';
+  post('features', `${icon} ${who(user)} · ${label}\n<code>${user.id}</code>${suffix}`);
 }
 
 export interface DailyDigest {

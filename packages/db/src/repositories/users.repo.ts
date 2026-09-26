@@ -9,6 +9,11 @@ export interface AppUserRecord {
   firstName: string | null;
 }
 
+export interface UpsertedUser extends AppUserRecord {
+  /** This call inserted the row: the user is new. */
+  created: boolean;
+}
+
 /**
  * Register or refresh a Telegram user.
  *
@@ -18,12 +23,16 @@ export interface AppUserRecord {
  *
  * `locale` is only set on insert: a returning user who switched the bot to
  * English must not have that overwritten by their Telegram client language.
+ *
+ * `created` comes from the same statement: a row the insert wrote has `xmax`
+ * 0, a row the conflict branch updated does not. A second query could not
+ * tell a new user from one who tapped twice at once.
  */
 export async function upsertUser(
   telegramId: number,
   profile: { firstName?: string; username?: string; languageCode?: 'fa' | 'en' },
   database: Database = db(),
-): Promise<AppUserRecord> {
+): Promise<UpsertedUser> {
   const [row] = await database
     .insert(appUser)
     .values({
@@ -49,10 +58,16 @@ export async function upsertUser(
       telegramId: appUser.telegramId,
       locale: appUser.locale,
       firstName: appUser.firstName,
+      created: sql<boolean>`(xmax = 0)`,
     });
 
   await database.insert(userSettings).values({ userId: row!.id }).onConflictDoNothing();
   return row!;
+}
+
+export async function countUsers(database: Database = db()): Promise<number> {
+  const [row] = await database.select({ count: sql<number>`count(*)::int` }).from(appUser);
+  return row?.count ?? 0;
 }
 
 export async function findUserByTelegramId(

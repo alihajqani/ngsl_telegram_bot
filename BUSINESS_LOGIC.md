@@ -1112,7 +1112,17 @@ locale. A 403/400 flags them as blocked so the next broadcast skips them.
 The broadcast prompt has a ❌ Cancel button; typing `/cancel` still works.
 
 Warnings and errors are mirrored into a Telegram technical topic when the monitor
-is enabled.
+is enabled. Two more topics follow the learners:
+
+- **users**: a learner's first update, with name, @handle, Telegram id and the new
+  user count. "First" is the upsert that inserted their row (`xmax = 0` in its
+  `RETURNING`), so two taps at once still report them once.
+- **features**: one line per use, with the learner and a detail. A new-word
+  session (word count) and a review session (cards due) are reported once when
+  they start, not per card; a word's clip deck (the word), a clip search (the
+  text searched) and a graded writing (word count and score) once each.
+
+*Source: `packages/monitor/src/monitor.ts`, `apps/bot/src/middlewares.ts`*
 
 Admin ids come from config; `isAdmin` gates both the panel and the broadcast
 composer, and the broadcast route takes precedence over every other text route.

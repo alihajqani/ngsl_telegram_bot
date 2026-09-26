@@ -8,6 +8,7 @@ import {
 } from '@ngsl/db';
 import { startNewWordSession, startReviewSession } from '@ngsl/queue';
 import { recordActivity, type ActivityResult } from '@ngsl/game';
+import { reportFeature } from '@ngsl/monitor';
 import { createLogger } from '@ngsl/shared';
 import { t } from '../i18n/i18n.js';
 import {
@@ -58,6 +59,7 @@ export async function newWordsHandler(ctx: BotContext): Promise<void> {
 
   await ctx.reply(t('newWords.header', { count: session.words.length }), { parse_mode: 'HTML' });
   await sendNextWordCard(ctx);
+  if (ctx.from) reportFeature('newwords', ctx.from, `${session.words.length} words`);
   log.info('New word session started', {
     userId,
     words: session.words.length,
@@ -174,6 +176,7 @@ export async function reviewHandler(ctx: BotContext): Promise<void> {
 
   await ctx.reply(t('review.header', { count: session.words.length }), { parse_mode: 'HTML' });
   await sendNextReviewCard(ctx);
+  if (ctx.from) reportFeature('review', ctx.from, `${session.words.length} due`);
 }
 
 /** Send the card at the head of the queue, or close the session. */

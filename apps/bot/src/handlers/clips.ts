@@ -9,6 +9,7 @@ import {
   voteSegment,
   type ClipAccent,
 } from '@ngsl/db';
+import { reportFeature } from '@ngsl/monitor';
 import { prewarmWords } from '@ngsl/queue';
 import { createLogger } from '@ngsl/shared';
 import { highlightForms, highlightMarked } from '../highlight.js';
@@ -46,7 +47,9 @@ export async function clipsHandler(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
   const userId = ctx.session.userId;
   if (!match || userId === undefined) return;
-  await openWordDeck(ctx, Number(match[1]), await accentOf(userId));
+  const wordId = Number(match[1]);
+  await openWordDeck(ctx, wordId, await accentOf(userId));
+  if (ctx.from) reportFeature('clips', ctx.from, (await getWordLemma(wordId)) ?? `word ${wordId}`);
 }
 
 async function openWordDeck(ctx: BotContext, wordId: number, accent: ClipAccent): Promise<void> {
@@ -132,6 +135,7 @@ export async function searchHandler(ctx: BotContext, raw: string): Promise<void>
     return;
   }
 
+  if (ctx.from) reportFeature('search', ctx.from, query);
   const accent = await accentOf(userId);
   const wordId = query.includes(' ') ? undefined : await findWordByLemma(query);
   if (wordId !== undefined) {
