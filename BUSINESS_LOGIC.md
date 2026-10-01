@@ -777,8 +777,10 @@ Asked for by a teacher using the bot. One `word_detail` row per word:
   removed from the family so the card does not show it twice.
 - **Synonyms**: up to 3, each with a note under 10 words on how it differs.
 
-Generated like the collocations: 8 words per request, by the content worker,
-only for words without a row. **A bad item drops that item, never the batch**:
+Generated like the collocations, by the content worker, only for words without
+a row, but **4 words per request**: an entry is several times a collocation
+list, and 8 of them took gemma-4 past the server's 180 s request timeout on
+every batch (4 take 70–100 s). **A bad item drops that item, never the batch**:
 an unknown part of speech, a phrase where a single word belongs, or a repeat of
 the headword is filtered out word by word. A word with no recognised part of
 speech is not saved, so the next run asks again. Function words ("the", "and")

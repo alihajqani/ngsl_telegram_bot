@@ -9,6 +9,12 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Grammar details are generated 4 words a request**, not 8. On the server
+  every 8-word batch ran past the 180 s LLM timeout, so no word got details;
+  4-word batches take 70–100 s.
+
 ## [3.5.0] - 2026-10-01
 
 ### Added

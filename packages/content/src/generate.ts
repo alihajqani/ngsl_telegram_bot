@@ -146,6 +146,13 @@ type DetailEntry = z.infer<typeof detailBatchSchema>['words'][number];
 const MAX_FAMILY = 5;
 const MAX_SYNONYMS = 3;
 
+/**
+ * Half the usual batch. An entry here is several times a collocation list, and
+ * on the server eight of them took gemma-4 past the 180 s request timeout on
+ * every batch; four take 70–100 s.
+ */
+const DETAIL_BATCH_SIZE = 4;
+
 const lower = (value: unknown): string =>
   typeof value === 'string' ? value.trim().toLowerCase() : '';
 
@@ -449,7 +456,8 @@ export async function generateWordDetails(
     batchesFailed: 0,
   };
 
-  await forEachBatch('Detail', targets, options, stats, async (batch) => {
+  const batchOptions = { ...options, batchSize: options.batchSize ?? DETAIL_BATCH_SIZE };
+  await forEachBatch('Detail', targets, batchOptions, stats, async (batch) => {
     const messages: ChatMessage[] = [
       {
         role: 'system',

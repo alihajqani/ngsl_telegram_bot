@@ -222,6 +222,16 @@ describe('word details', () => {
     expect(detail?.synonyms).toHaveLength(3);
   });
 
+  /** Eight entries ran past the server's 180 s request timeout on every batch. */
+  it('asks for 4 words a request', async () => {
+    wordsMissingDetails.mockResolvedValue(words(10));
+    completeJson.mockReset().mockResolvedValue({ words: [] });
+
+    await generateWordDetails({}, database);
+
+    expect(completeJson).toHaveBeenCalledTimes(3);
+  });
+
   it('saves only the words it was asked about', async () => {
     wordsMissingDetails.mockResolvedValue([{ wordId: 7, lemma: 'decide', definition: null, have: 0 }]);
     completeJson.mockResolvedValue(
