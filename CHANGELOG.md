@@ -9,7 +9,29 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **Grammar details on the new-word card**: parts of speech beside the word,
+  then its word family, the word it is formed from, and up to three synonyms
+  with a note on how each differs. A new `word_detail` table holds them; the
+  content worker fills it after the collocations, 8 words per request, and
+  `pnpm content details` runs the same pass by hand. A word the worker has not
+  reached yet shows the plain card.
+- **❓ Help button and `/help`**: the guide from the welcome, on demand. The
+  guide now covers every menu feature, the four buttons under a word card and
+  how writing is scored.
+
 ### Changed
+
+- **Writing is scored on four criteria**, each 1–10: use of the target words,
+  grammar, range, cohesion. The overall score is their mean, computed in code
+  and 10 only when all four are 10; the learner sees each sub-score. The rubric
+  gives a 10 whenever no specific problem can be pointed to and backs every
+  lost point with a listed issue. A teacher using the bot found the old single
+  score never reached 10 and could not be explained. Sub-scores are stored in
+  the new `writing_session.scores` column.
+- A writing-coach answer wrapped in a one-item array is unwrapped instead of
+  failing; gemma-4 did this twice in a row on the new rubric prompt.
 
 - **Info log lines have their own monitor topic.** They went to the technical
   topic with the warnings and errors, about 35 an hour from the worker alone.
