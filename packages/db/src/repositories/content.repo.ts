@@ -1,6 +1,13 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db, type Database } from '../client.js';
-import { wordCollocation, wordExample } from '../schema.js';
+import {
+  wordCollocation,
+  wordDetail,
+  wordExample,
+  type PartOfSpeech,
+  type WordFamilyMember,
+  type WordSynonym,
+} from '../schema.js';
 
 /**
  * Word content: contextual example sentences and collocations/idioms.
@@ -133,6 +140,29 @@ export async function saveCollocations(
     });
 }
 
+export interface WordDetailInput {
+  wordId: number;
+  partsOfSpeech: PartOfSpeech[];
+  family: WordFamilyMember[];
+  baseWord: string | null;
+  synonyms: WordSynonym[];
+}
+
+/** Save a word's grammar details. A re-run replaces them. */
+export async function saveWordDetail(
+  detail: WordDetailInput,
+  database: Database = db(),
+): Promise<void> {
+  const { partsOfSpeech, family, baseWord, synonyms } = detail;
+  await database
+    .insert(wordDetail)
+    .values(detail)
+    .onConflictDoUpdate({
+      target: wordDetail.wordId,
+      set: { partsOfSpeech, family, baseWord, synonyms },
+    });
+}
+
 export interface WordNeedingContent {
   wordId: number;
   lemma: string;
@@ -177,11 +207,23 @@ export async function wordsMissingCollocations(
   return [...rows];
 }
 
+/** Words with no grammar details yet, most frequent first. */
+export async function wordsMissingDetails(database: Database = db()): Promise<WordNeedingContent[]> {
+  const rows = await database.execute<Row<WordNeedingContent>>(sql`
+    select w.id as "wordId", w.lemma, w.definition, 0 as "have"
+      from word w
+     where not exists (select 1 from word_detail d where d.word_id = w.id)
+     order by w.sfi_rank
+  `);
+  return [...rows];
+}
+
 export interface ContentCoverage {
   words: number;
   withCorpusExamples: number;
   withLlmExamples: number;
   withCollocations: number;
+  withDetails: number;
   corpusExamples: number;
   llmExamples: number;
   collocations: number;
@@ -194,6 +236,7 @@ export async function contentCoverage(database: Database = db()): Promise<Conten
       (select count(distinct word_id)::int from word_example where source = 'corpus') as "withCorpusExamples",
       (select count(distinct word_id)::int from word_example where source = 'llm')    as "withLlmExamples",
       (select count(distinct word_id)::int from word_collocation)                     as "withCollocations",
+      (select count(*)::int from word_detail)                                         as "withDetails",
       (select count(*)::int from word_example where source = 'corpus')                as "corpusExamples",
       (select count(*)::int from word_example where source = 'llm')                   as "llmExamples",
       (select count(*)::int from word_collocation)                                    as "collocations"

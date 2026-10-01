@@ -36,6 +36,13 @@
       "when": 1790355821434,
       "tag": "0004_clip_accent",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790854193817,
+      "tag": "0005_word_detail",
+      "breakpoints": true
     }
   ]
 }

@@ -204,6 +204,52 @@ export const wordCollocation = pgTable(
   ],
 );
 
+/** The parts of speech a word card can name. Kept in code, not a pg enum, so adding one needs no migration. */
+export const PARTS_OF_SPEECH = [
+  'noun',
+  'verb',
+  'adjective',
+  'adverb',
+  'pronoun',
+  'preposition',
+  'conjunction',
+  'determiner',
+  'modal',
+  'interjection',
+  'number',
+] as const;
+export type PartOfSpeech = (typeof PARTS_OF_SPEECH)[number];
+
+export interface WordFamilyMember {
+  word: string;
+  pos: PartOfSpeech;
+}
+
+export interface WordSynonym {
+  word: string;
+  /** How it differs from the headword, in a few plain English words. */
+  note: string | null;
+}
+
+/**
+ * A word's grammar, shown on its card: parts of speech, word family, the word
+ * it derives from, and close synonyms. LLM-generated offline like the
+ * collocations. A row exists once a word was processed, even when the lists
+ * are empty, as they are for "the" or "and".
+ */
+export const wordDetail = pgTable('word_detail', {
+  wordId: integer('word_id')
+    .primaryKey()
+    .references(() => word.id, { onDelete: 'cascade' }),
+  /** Most common first. */
+  partsOfSpeech: text('parts_of_speech').array().$type<PartOfSpeech[]>().notNull(),
+  family: jsonb('family').$type<WordFamilyMember[]>().notNull().default(sql`'[]'`),
+  /** The word this one is formed from (government → govern); null for a base word. */
+  baseWord: varchar('base_word', { length: 64 }),
+  synonyms: jsonb('synonyms').$type<WordSynonym[]>().notNull().default(sql`'[]'`),
+  createdAt: createdAt(),
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Learning — Leitner
 // ─────────────────────────────────────────────────────────────────────────────
@@ -625,6 +671,8 @@ export const writingSession = pgTable(
      */
     aiSampleText: text('ai_sample_text'),
     score: smallint('score'),
+    /** The rubric's per-criterion scores; `score` is their rounded mean. Null before 3.5.0. */
+    scores: jsonb('scores').$type<Record<string, number>>(),
     feedback: text('feedback'),
     createdAt: createdAt(),
   },

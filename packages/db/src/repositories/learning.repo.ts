@@ -9,7 +9,16 @@ import {
 } from '@ngsl/core';
 import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { db, type Database } from '../client.js';
-import { reviewEvent, userSettings, userWord, word } from '../schema.js';
+import {
+  reviewEvent,
+  userSettings,
+  userWord,
+  word,
+  wordDetail,
+  type PartOfSpeech,
+  type WordFamilyMember,
+  type WordSynonym,
+} from '../schema.js';
 
 /**
  * The learning engine's persistence layer.
@@ -27,6 +36,18 @@ export interface WordCard {
   lemma: string;
   definition: string | null;
   bucket: number;
+}
+
+/** A word's grammar, for the new-word card. Absent until the content worker reaches the word. */
+export interface WordGrammar {
+  partsOfSpeech: PartOfSpeech[];
+  family: WordFamilyMember[];
+  baseWord: string | null;
+  synonyms: WordSynonym[];
+}
+
+export interface NewWordCard extends WordCard {
+  grammar: WordGrammar | null;
 }
 
 export interface ReviewCard extends WordCard {
@@ -171,12 +192,28 @@ export async function addNewWords(
 export async function getWordCard(
   wordId: number,
   database: Database = db(),
-): Promise<WordCard | undefined> {
+): Promise<NewWordCard | undefined> {
   const [row] = await database
-    .select({ wordId: word.id, lemma: word.lemma, definition: word.definition, bucket: word.bucket })
+    .select({
+      wordId: word.id,
+      lemma: word.lemma,
+      definition: word.definition,
+      bucket: word.bucket,
+      partsOfSpeech: wordDetail.partsOfSpeech,
+      family: wordDetail.family,
+      baseWord: wordDetail.baseWord,
+      synonyms: wordDetail.synonyms,
+    })
     .from(word)
+    .leftJoin(wordDetail, eq(wordDetail.wordId, word.id))
     .where(eq(word.id, wordId));
-  return row;
+  if (!row) return undefined;
+
+  const { partsOfSpeech, family, baseWord, synonyms, ...card } = row;
+  const grammar = partsOfSpeech
+    ? { partsOfSpeech, family: family ?? [], baseWord, synonyms: synonyms ?? [] }
+    : null;
+  return { ...card, grammar };
 }
 
 /** Words due for review, most overdue first. */

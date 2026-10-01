@@ -78,6 +78,8 @@ export async function saveSubmission(
     submittedText: string;
     correctedText: string;
     score: number;
+    /** The rubric's per-criterion scores, `score` being their rounded mean. */
+    scores: Record<string, number>;
     feedback: string;
   },
   database: Database = db(),
