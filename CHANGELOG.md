@@ -16,8 +16,10 @@ file says what changed and what an operator has to do about it.
   4-word batches take 70–100 s.
 - **A word's family is words from the same root** (decide: decision,
   decisive), not words related only in meaning: the first prompt gave "have"
-  the family member "possession". The rows generated before this fix were
-  deleted on the server so the worker writes them again.
+  the family member "possession". The 32 rows written before this fix still
+  carry the old prompt's families; deleting them
+  (`delete from word_detail where created_at < '2026-10-01T12:28:15Z'`)
+  makes the worker write them again.
 
 ## [3.5.0] - 2026-10-01
 
