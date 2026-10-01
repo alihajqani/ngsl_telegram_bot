@@ -25,7 +25,12 @@ import {
   writeHandler,
   writingSubmissionHandler,
 } from './handlers/writing.js';
-import { checkMembershipHandler, progressHandler, startHandler } from './handlers/start.js';
+import {
+  checkMembershipHandler,
+  helpHandler,
+  progressHandler,
+  startHandler,
+} from './handlers/start.js';
 import {
   buddyHandler,
   globalBoardHandler,
@@ -60,6 +65,7 @@ const COMMANDS = [
   { command: 'lazy', description: 'Lazy Board' },
   { command: 'settings', description: 'Settings' },
   { command: 'progress', description: 'Your progress' },
+  { command: 'help', description: 'How to use the bot' },
 ];
 
 /** Shown to Telegram clients set to Persian; everyone else gets `COMMANDS`. */
@@ -74,6 +80,7 @@ const COMMANDS_FA = [
   { command: 'lazy', description: 'تابلوی تنبل‌ها' },
   { command: 'settings', description: 'تنظیمات' },
   { command: 'progress', description: 'پیشرفت شما' },
+  { command: 'help', description: 'راهنمای ربات' },
 ];
 
 /** Every main-menu button's handler. A `Record` so a new button without one fails the build. */
@@ -87,6 +94,7 @@ const MENU_ROUTES: Record<MenuKey, (ctx: BotContext) => Promise<void>> = {
   lazy: lazyBoardHandler,
   search: searchPromptHandler,
   settings: settingsHandler,
+  help: helpHandler,
   admin: adminHandler,
 };
 
@@ -141,6 +149,7 @@ async function main(): Promise<void> {
   bot.command('league', leagueHandler);
   bot.command('lazy', lazyBoardHandler);
   bot.command('settings', settingsHandler);
+  bot.command('help', helpHandler);
   bot.command('search', (ctx) => (ctx.match ? searchHandler(ctx, ctx.match) : searchPromptHandler(ctx)));
   bot.command('admin', adminHandler);
 

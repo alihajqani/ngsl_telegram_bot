@@ -1,6 +1,6 @@
 import { closeDatabase, contentCoverage } from '@ngsl/db';
 import { createLogger } from '@ngsl/shared';
-import { generateCollocations, generateExamples } from './generate.js';
+import { generateCollocations, generateExamples, generateWordDetails } from './generate.js';
 import { mineAll } from './mine.js';
 
 const log = createLogger('content.cli');
@@ -8,11 +8,12 @@ const log = createLogger('content.cli');
 const USAGE = `
 Usage: pnpm content <command> [options]
 
-  status         Report example and collocation coverage
+  status         Report example, collocation and detail coverage
   mine           Mine authentic examples from the indexed corpus (no LLM)
   examples       LLM-generate examples for words the corpus could not cover
   collocations   LLM-generate 5 collocations/idioms per word
-  all            mine, then examples, then collocations
+  details        LLM-generate parts of speech, word family, base word, synonyms
+  all            mine, then examples, collocations and details
 
 Options:
   --limit=<n>    Cap how many words an LLM pass handles (smoke test first)
@@ -31,6 +32,7 @@ async function status(): Promise<void> {
   with corpus examples       ${c.withCorpusExamples}  (${pct(c.withCorpusExamples)})
   with LLM examples          ${c.withLlmExamples}  (${pct(c.withLlmExamples)})
   with collocations          ${c.withCollocations}  (${pct(c.withCollocations)})
+  with grammar details       ${c.withDetails}  (${pct(c.withDetails)})
 
   corpus examples            ${c.corpusExamples}
   llm examples               ${c.llmExamples}
@@ -84,11 +86,21 @@ async function main(): Promise<void> {
       return;
     }
 
+    case 'details': {
+      const stats = await generateWordDetails({ limit });
+      console.log(
+        `\n  generated details for ${stats.wordsWritten} words ` +
+          `(${stats.batchesFailed} batches failed)\n`,
+      );
+      return;
+    }
+
     case 'all':
       // Mine first: it is free, and it shrinks the LLM's workload.
       await mineAll(mineOptions);
       await generateExamples({ limit });
       await generateCollocations({ limit });
+      await generateWordDetails({ limit });
       await status();
       return;
 

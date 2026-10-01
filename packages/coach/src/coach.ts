@@ -141,6 +141,7 @@ export async function submitWriting(
     submittedText: text,
     correctedText: feedback.correctedText,
     score: feedback.score,
+    scores: feedback.scores,
     feedback: feedback.overallComment,
   });
 

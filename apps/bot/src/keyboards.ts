@@ -49,7 +49,7 @@ export const MENU_LAYOUT = [
   ['search', 'writing'],
   ['progress', 'streak'],
   ['league', 'lazy'],
-  ['settings'],
+  ['settings', 'help'],
 ] as const;
 
 export type MenuKey = (typeof MENU_LAYOUT)[number][number] | 'admin';

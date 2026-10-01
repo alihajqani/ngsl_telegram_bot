@@ -28,13 +28,29 @@ export const en: Locale = {
       'Learn English through the <b>{wordCount}</b> most useful words — ' +
       'with real clips from TED talks and BBC.',
     guide:
-      '<b>How it works</b>\n\n' +
-      '📖 <b>New words</b> — a few fresh words a day, with examples and clips\n' +
-      '🔄 <b>Review</b> — the Leitner system brings each word back at the right time\n' +
-      '🎬 <b>Clips</b> — the word in real speech, never the same clip twice\n' +
-      '🔎 <b>Search</b> — type any English word or phrase to see it in clips\n' +
-      '📊 <b>Progress</b> — see how far you have come\n\n' +
-      'Pick something from the menu below 👇',
+      '❓ <b>How to use the bot</b>\n\n' +
+      '📖 <b>New words</b>\n' +
+      'A few high-frequency words a day, one at a time. Each card shows the part of ' +
+      'speech, the word family and synonyms, with these buttons below it:\n' +
+      '📝 Examples: a few sample sentences\n' +
+      '🔗 Collocations: common combinations and idioms\n' +
+      '🎬 Clips: the word in real talks\n' +
+      '📕 Dictionary: the full entry in an online dictionary\n\n' +
+      '🔄 <b>Review</b>\n' +
+      'The Leitner system brings each word back at the right time. Tap “I know it” ' +
+      'if you do, “I don’t know” if not.\n\n' +
+      '✍️ <b>Writing</b>\n' +
+      'Write a paragraph with some of the words you have learned and send it. You get ' +
+      'a score out of 10 with a score for each of four criteria (use of the words, ' +
+      'grammar, sentence variety, cohesion), a corrected text and a native sample.\n\n' +
+      '🔎 <b>Search</b>\n' +
+      'Type any English word or phrase to see it in clips.\n\n' +
+      '📊 <b>Progress</b>: how many words you have learned and how well you know them.\n' +
+      '🔥 <b>Streak &amp; points</b>: your points and days in a row.\n' +
+      '🏆 <b>League</b>: a weekly contest with other learners.\n' +
+      '😴 <b>Lazy Board</b>: learners who have been away for days. Joining is optional.\n' +
+      '⚙️ <b>Settings</b>: daily words and reviews, reminders, clip accent and language.\n\n' +
+      'See this guide again any time with “❓ Help” or /help.',
   },
 
   menu: {
@@ -48,6 +64,7 @@ export const en: Locale = {
     lazy: '😴 Lazy Board',
     admin: '🛠 Admin',
     search: '🔎 Search',
+    help: '❓ Help',
     prompt: 'Choose an option:',
   },
 
@@ -86,6 +103,23 @@ export const en: Locale = {
     reviewCount: '🔄 Reviewed {count}×',
     remaining: '<i>{count} more to go</i>',
     firstTime: '🆕 First time',
+    partsOfSpeech: '<i>{pos}</i>',
+    family: '🌳 Word family: {words}',
+    baseWord: '🌱 Formed from: {word}',
+    synonyms: '🔁 Synonyms:',
+    pos: {
+      noun: 'noun',
+      verb: 'verb',
+      adjective: 'adjective',
+      adverb: 'adverb',
+      pronoun: 'pronoun',
+      preposition: 'preposition',
+      conjunction: 'conjunction',
+      determiner: 'determiner',
+      modal: 'modal verb',
+      interjection: 'interjection',
+      number: 'number',
+    },
     buttons: {
       examples: '📝 Examples',
       collocations: '🔗 Collocations',
@@ -146,6 +180,14 @@ export const en: Locale = {
     grading: '⏳ Reading your text...',
     llmUnavailable: '⚠️ The AI coach is unavailable. Please try again shortly.',
     feedbackHeader: '📝 <b>Feedback</b> — {score}/10 {stars}',
+    criterion: '• {label}: {score}/10',
+    criteria: {
+      targetWords: 'Use of the target words',
+      grammar: 'Grammar',
+      range: 'Sentence and word variety',
+      cohesion: 'Cohesion',
+    },
+    scoreNote: '<i>The overall score is the average of these four. A 10 means nothing to correct.</i>',
     used: '✅ Target words used: {words}',
     missed: '⬜ Not used: {words}',
     issuesHeader: '<b>Grammar notes</b>',

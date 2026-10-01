@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { checkLength, countWords, MAX_WORDS, MIN_WORDS } from './contracts.js';
+import {
+  checkLength,
+  countWords,
+  feedbackSchema,
+  MAX_WORDS,
+  MIN_WORDS,
+  overallScore,
+} from './contracts.js';
 import { buildFeedbackPrompt, buildSamplePrompt, buildSummaryPrompt } from './prompts.js';
 
 const LEMMAS = ['medicine', 'child', 'question', 'energy', 'light'];
@@ -64,6 +71,73 @@ describe('buildFeedbackPrompt', () => {
     expect(prompt).toContain('5–6');
     expect(prompt).toContain('correctedText');
   });
+
+  it('asks for a score per criterion, not one overall number', () => {
+    const prompt = joined(buildFeedbackPrompt({ lemmas: LEMMAS, text: STUDENT_TEXT }));
+    for (const criterion of ['targetWords', 'grammar', 'range', 'cohesion']) {
+      expect(prompt).toContain(criterion);
+    }
+    expect(prompt).not.toContain('"score"');
+  });
+
+  /** A teacher found the old rubric never gave 10, and no score could be explained. */
+  it('gives 10 when nothing can be pointed to, and ties every lost point to an issue', () => {
+    const prompt = joined(buildFeedbackPrompt({ lemmas: LEMMAS, text: STUDENT_TEXT }));
+    expect(prompt).toContain('Give 10 whenever you cannot point to a specific problem');
+    expect(prompt).toContain('must be explained by at least one item');
+    expect(prompt).toContain('1–2');
+  });
+});
+
+describe('feedbackSchema', () => {
+  const answer = (scores: Record<string, unknown>) => ({
+    overallComment: 'Good effort',
+    scores,
+    vocabularyUsed: ['medicine'],
+    vocabularyMissing: [],
+    grammarIssues: [],
+    suggestions: [],
+    correctedText: 'corrected',
+  });
+
+  it('computes the overall score as the rounded mean of the criteria', () => {
+    const parsed = feedbackSchema.parse(answer({ targetWords: 8, grammar: 6, range: 7, cohesion: 8 }));
+    expect(parsed.score).toBe(7);
+    expect(parsed.scores).toEqual({ targetWords: 8, grammar: 6, range: 7, cohesion: 8 });
+  });
+
+  it('gives a 10 overall only when every criterion is a 10', () => {
+    expect(overallScore({ targetWords: 10, grammar: 10, range: 10, cohesion: 10 })).toBe(10);
+    expect(overallScore({ targetWords: 10, grammar: 10, range: 10, cohesion: 9 })).toBe(9);
+    expect(overallScore({ targetWords: 10, grammar: 10, range: 9, cohesion: 8 })).toBe(9);
+    expect(overallScore({ targetWords: 6, grammar: 5, range: 6, cohesion: 5 })).toBe(6);
+  });
+
+  it('accepts a score sent as a string or with a fraction', () => {
+    const parsed = feedbackSchema.parse(
+      answer({ targetWords: '9', grammar: 7.5, range: 7, cohesion: 7 }),
+    );
+    expect(parsed.scores.targetWords).toBe(9);
+    expect(parsed.scores.grammar).toBe(8);
+  });
+
+  it('unwraps an answer the model put inside a one-item array', () => {
+    const parsed = feedbackSchema.parse([
+      answer({ targetWords: 10, grammar: 10, range: 10, cohesion: 10 }),
+    ]);
+    expect(parsed.score).toBe(10);
+  });
+
+  /** The JSON shape shows 0s: a model that copies them must fail, not score 0. */
+  it('rejects the 0 placeholder and anything out of range', () => {
+    expect(() =>
+      feedbackSchema.parse(answer({ targetWords: 0, grammar: 0, range: 0, cohesion: 0 })),
+    ).toThrow();
+    expect(() =>
+      feedbackSchema.parse(answer({ targetWords: 11, grammar: 7, range: 7, cohesion: 7 })),
+    ).toThrow();
+    expect(() => feedbackSchema.parse(answer({ targetWords: 7, grammar: 7, range: 7 }))).toThrow();
+  });
 });
 
 describe('buildSummaryPrompt', () => {
@@ -73,6 +147,7 @@ describe('buildSummaryPrompt', () => {
     vocabularyMissing: ['energy'],
     grammarIssues: ['"I go" should be "I went"'],
     suggestions: ['Vary sentence length'],
+    scores: { targetWords: 8, grammar: 5, range: 6, cohesion: 6 },
     score: 6,
     correctedText: 'corrected',
   };

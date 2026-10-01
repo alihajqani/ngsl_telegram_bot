@@ -49,6 +49,14 @@ export async function sendWelcome(ctx: BotContext): Promise<void> {
   });
 }
 
+/** `/help` and the ❓ button: the guide from the welcome, on demand. */
+export async function helpHandler(ctx: BotContext): Promise<void> {
+  await ctx.reply(t('start.guide'), {
+    parse_mode: 'HTML',
+    reply_markup: mainMenuKeyboard({ admin: isAdmin(ctx) }),
+  });
+}
+
 /** The "I have joined" button. */
 export async function checkMembershipHandler(ctx: BotContext): Promise<void> {
   const channel = config().telegram.requiredChannel;

@@ -8,28 +8,75 @@ import { z } from 'zod';
  * malformed state into the rolling memory.
  */
 
-export const sampleSchema = z.object({
-  text: z.string().min(20),
-});
+/**
+ * The model sometimes wraps its one object in an array: seen twice in a row
+ * from gemma-4 on the rubric prompt. Same answer, so it is unwrapped rather
+ * than costing the learner their feedback.
+ */
+const unwrapSingle = (value: unknown): unknown =>
+  Array.isArray(value) && value.length === 1 ? (value[0] as unknown) : value;
+
+export const sampleSchema = z.preprocess(
+  unwrapSingle,
+  z.object({
+    text: z.string().min(20),
+  }),
+);
 export type SampleResult = z.infer<typeof sampleSchema>;
 
-export const feedbackSchema = z.object({
-  overallComment: z.string().min(1),
-  vocabularyUsed: z.array(z.string()).max(20),
-  vocabularyMissing: z.array(z.string()).max(20),
-  grammarIssues: z.array(z.string()).max(5),
-  suggestions: z.array(z.string()).max(5),
-  score: z.number().int().min(1).max(10),
-  correctedText: z.string().min(1),
-});
+/**
+ * What a paragraph is scored on, each from 1 to 10, in display order.
+ *
+ * The overall score is computed from these rather than asked for. A single
+ * holistic number could not be explained to the learner, and the model treated
+ * 10 as unreachable however clean the paragraph was.
+ */
+export const CRITERIA = ['targetWords', 'grammar', 'range', 'cohesion'] as const;
+export type Criterion = (typeof CRITERIA)[number];
+export type CriterionScores = Record<Criterion, number>;
+
+/** A string "7" or a 7.5 is the same judgement; a 0 copied from the shape is not. */
+const criterionScore = z.coerce.number().min(1).max(10).transform(Math.round);
+
+/**
+ * The mean of the criteria, rounded: every criterion weighs the same. A 10
+ * means nothing to correct, so a mean of 9.5 stays a 9.
+ */
+export function overallScore(scores: CriterionScores): number {
+  const mean = CRITERIA.reduce((sum, criterion) => sum + scores[criterion], 0) / CRITERIA.length;
+  return mean === 10 ? 10 : Math.min(9, Math.round(mean));
+}
+
+export const feedbackSchema = z.preprocess(
+  unwrapSingle,
+  z
+    .object({
+      overallComment: z.string().min(1),
+      vocabularyUsed: z.array(z.string()).max(20),
+      vocabularyMissing: z.array(z.string()).max(20),
+      grammarIssues: z.array(z.string()).max(5),
+      suggestions: z.array(z.string()).max(5),
+      scores: z.object({
+        targetWords: criterionScore,
+        grammar: criterionScore,
+        range: criterionScore,
+        cohesion: criterionScore,
+      }),
+      correctedText: z.string().min(1),
+    })
+    .transform((feedback) => ({ ...feedback, score: overallScore(feedback.scores) })),
+);
 export type WritingFeedback = z.infer<typeof feedbackSchema>;
 
-export const summarySchema = z.object({
-  /** Recurring patterns, capped so the memory stays a summary and not a log. */
-  grammarPatterns: z.array(z.string()).max(5),
-  missedVocabulary: z.array(z.string()).max(10),
-  lastSessionNote: z.string().min(1),
-});
+export const summarySchema = z.preprocess(
+  unwrapSingle,
+  z.object({
+    /** Recurring patterns, capped so the memory stays a summary and not a log. */
+    grammarPatterns: z.array(z.string()).max(5),
+    missedVocabulary: z.array(z.string()).max(10),
+    lastSessionNote: z.string().min(1),
+  }),
+);
 export type SummaryUpdate = z.infer<typeof summarySchema>;
 
 export const MIN_WORDS = 30;

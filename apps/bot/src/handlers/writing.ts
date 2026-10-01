@@ -9,6 +9,7 @@ import {
   primeSample,
   startWritingSession,
   submitWriting,
+  CRITERIA,
   MAX_WORDS,
   MIN_WORDS,
   type WritingFeedback,
@@ -161,8 +162,16 @@ export async function cancelWritingHandler(ctx: BotContext): Promise<void> {
 
 function formatFeedback(feedback: WritingFeedback): string {
   const stars = '⭐'.repeat(Math.max(1, Math.round(feedback.score / 2)));
+  // The sub-scores come first: they are what the overall score is made of.
   const lines = [
     t('writing.feedbackHeader', { score: feedback.score, stars }),
+    ...CRITERIA.map((criterion) =>
+      t('writing.criterion', {
+        label: t(`writing.criteria.${criterion}`),
+        score: feedback.scores[criterion],
+      }),
+    ),
+    t('writing.scoreNote'),
     '',
     escapeHtml(feedback.overallComment),
   ];

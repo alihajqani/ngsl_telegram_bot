@@ -46,6 +46,38 @@ export interface FeedbackContext {
   priorPatterns?: readonly string[];
 }
 
+/**
+ * The scoring rubric: four criteria modelled on the IELTS writing bands, one
+ * scale for all of them, pitched at a short everyday paragraph.
+ *
+ * Two lines carry the fixes for what a teacher using the bot found: a 10 is
+ * given whenever nothing can be pointed to, and every lost point is backed by
+ * a listed issue, so the score can be explained.
+ */
+const RUBRIC =
+  'Score the paragraph from 1 to 10 on each of these four criteria, separately:\n' +
+  '- targetWords: each target word is used with the right meaning, form and part of ' +
+  'speech, inside a grammatical sentence. A word dropped into a broken phrase ' +
+  '("decide future good") counts as misused. Each target word that is missing or ' +
+  'misused costs about 2 points.\n' +
+  '- grammar: accuracy — verb tenses, agreement, articles, prepositions, word order, ' +
+  'spelling and punctuation.\n' +
+  '- range: variety and precision — compound and complex sentences, varied structures, ' +
+  'precise word choice beyond the most basic words.\n' +
+  '- cohesion: the ideas follow logically and are joined with suitable linkers ' +
+  '(because, however, although, so, then, first ...).\n\n' +
+  'Use the same scale for every criterion:\n' +
+  '- 10: nothing to correct or improve. Give 10 whenever you cannot point to a ' +
+  'specific problem; it is not reserved for an ideal text.\n' +
+  '- 9: a single tiny slip, otherwise excellent.\n' +
+  '- 7–8: good, with a few minor errors that never affect the meaning.\n' +
+  '- 5–6: competent, with several errors, but the meaning is always clear.\n' +
+  '- 3–4: frequent errors that sometimes make the meaning unclear.\n' +
+  '- 1–2: hard to understand, or the criterion is almost entirely unmet.\n\n' +
+  'Judge it as a short paragraph of everyday English, not an academic essay: a high ' +
+  'score needs no academic vocabulary or essay structure. Every criterion below 10 ' +
+  'must be explained by at least one item in grammarIssues or suggestions.';
+
 /** Call B — grade and correct the student's submission. */
 export function buildFeedbackPrompt(context: FeedbackContext): ChatMessage[] {
   const history =
@@ -59,8 +91,9 @@ export function buildFeedbackPrompt(context: FeedbackContext): ChatMessage[] {
     {
       role: 'system',
       content:
-        'You are an encouraging English writing teacher. You give concise, specific ' +
-        'feedback. Reply with JSON only — no prose, no markdown.',
+        'You are an experienced English writing teacher and examiner. Your scores are ' +
+        'strict and consistent; your comments are encouraging, concise and specific. ' +
+        'Reply with JSON only — no prose, no markdown.',
     },
     {
       role: 'user',
@@ -68,17 +101,14 @@ export function buildFeedbackPrompt(context: FeedbackContext): ChatMessage[] {
         `The learner was asked to write using these target words: ${context.lemmas.join(', ')}\n` +
         history +
         `\nTheir paragraph:\n"""\n${context.text}\n"""\n\n` +
-        'Score from 1 to 10 on grammar accuracy, correct use of the target words, ' +
-        'sentence variety, and overall clarity. A competent paragraph with minor ' +
-        'slips is 5–6. Reserve 8–9 for genuinely strong writing. Use 3–4 when errors ' +
-        'are frequent.\n\n' +
-        'JSON shape:\n' +
+        RUBRIC +
+        '\n\nJSON shape (replace each 0 in "scores" with your score):\n' +
         '{"overallComment":"one or two encouraging sentences",' +
+        '"scores":{"targetWords":0,"grammar":0,"range":0,"cohesion":0},' +
         '"vocabularyUsed":["target words actually used"],' +
         '"vocabularyMissing":["target words not used"],' +
         '"grammarIssues":["at most 5 specific issues, each quoting the phrase"],' +
         '"suggestions":["at most 5 concrete improvements"],' +
-        '"score":6,' +
         '"correctedText":"the full paragraph with grammar, spelling and punctuation ' +
         'fixed — preserve the learner\'s meaning, vocabulary choices and structure"}',
     },

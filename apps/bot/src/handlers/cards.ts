@@ -1,4 +1,4 @@
-import type { ReviewCard, WordCard } from '@ngsl/db';
+import type { NewWordCard, ReviewCard, WordGrammar } from '@ngsl/db';
 import { escapeHtml, t } from '../i18n/i18n.js';
 
 /**
@@ -10,12 +10,39 @@ import { escapeHtml, t } from '../i18n/i18n.js';
  * Telegram 400 that breaks the whole card.
  */
 
-export function buildWordCard(word: WordCard): string {
-  const lines = [t('card.word', { lemma: escapeHtml(word.lemma) })];
+export function buildWordCard(word: NewWordCard): string {
+  const headword = t('card.word', { lemma: escapeHtml(word.lemma) });
+  const pos = word.grammar?.partsOfSpeech.map((p) => t(`card.pos.${p}`)).join(' / ');
+  const lines = [pos ? `${headword}  ${t('card.partsOfSpeech', { pos })}` : headword];
   if (word.definition) {
     lines.push(t('card.definition', { definition: escapeHtml(word.definition) }));
   }
+  if (word.grammar) lines.push(...grammarLines(word.grammar));
   return lines.join('\n');
+}
+
+/**
+ * Word family, base word and synonyms, under the definition. Each synonym gets
+ * its own line: its English note inside a Persian line would come out of
+ * Telegram's bidi reordering scrambled.
+ */
+function grammarLines(grammar: WordGrammar): string[] {
+  const lines: string[] = [];
+  if (grammar.family.length > 0) {
+    const words = grammar.family
+      .map((m) => `${escapeHtml(m.word)} (${t(`card.pos.${m.pos}`)})`)
+      .join(' · ');
+    lines.push(t('card.family', { words }));
+  }
+  if (grammar.baseWord) lines.push(t('card.baseWord', { word: escapeHtml(grammar.baseWord) }));
+  if (grammar.synonyms.length > 0) {
+    lines.push(t('card.synonyms'));
+    for (const synonym of grammar.synonyms) {
+      const note = synonym.note ? `: <i>${escapeHtml(synonym.note)}</i>` : '';
+      lines.push(`• <b>${escapeHtml(synonym.word)}</b>${note}`);
+    }
+  }
+  return lines.length > 0 ? ['', ...lines] : [];
 }
 
 export function buildReviewCard(word: ReviewCard, remaining: number): string {

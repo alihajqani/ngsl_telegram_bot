@@ -15,6 +15,8 @@ export {
 export {
   generateExamples,
   generateCollocations,
+  generateWordDetails,
+  cleanDetail,
   type GenerateOptions,
   type GenerateStats,
 } from './generate.js';

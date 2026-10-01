@@ -1,6 +1,8 @@
 export {
   sampleSchema,
   feedbackSchema,
+  CRITERIA,
+  overallScore,
   summarySchema,
   checkLength,
   countWords,
@@ -8,6 +10,8 @@ export {
   MAX_WORDS,
   type SampleResult,
   type WritingFeedback,
+  type Criterion,
+  type CriterionScores,
   type SummaryUpdate,
   type LengthVerdict,
 } from './contracts.js';
