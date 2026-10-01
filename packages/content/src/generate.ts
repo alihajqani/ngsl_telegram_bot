@@ -472,9 +472,11 @@ export async function generateWordDetails(
           'Rules:\n' +
           '- "pos": every part of speech the word commonly has, most common first, each one ' +
           `of: ${PARTS_OF_SPEECH.join(', ')}.\n` +
-          '- "family": up to 5 other common words of the same family, each with its part of ' +
-          'speech. Not the word itself, and not its plain inflections (decides, decided, ' +
-          'cars). An empty list when there are none.\n' +
+          '- "family": up to 5 other common words built from the same root with a prefix or ' +
+          'suffix (decide: decision, decisive, decisively), each with its part of speech. ' +
+          'Not words only related in meaning (have: possession), not the word itself, and ' +
+          'not its plain inflections (decides, decided, cars). An empty list when there are ' +
+          'none.\n' +
           '- "base": the word it is formed from when it is a derived word ' +
           '(government → govern, happiness → happy); null when it is a base word.\n' +
           '- "synonyms": up to 3 common single-word synonyms a learner could use instead in ' +

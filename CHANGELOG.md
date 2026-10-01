@@ -14,6 +14,10 @@ file says what changed and what an operator has to do about it.
 - **Grammar details are generated 4 words a request**, not 8. On the server
   every 8-word batch ran past the 180 s LLM timeout, so no word got details;
   4-word batches take 70–100 s.
+- **A word's family is words from the same root** (decide: decision,
+  decisive), not words related only in meaning: the first prompt gave "have"
+  the family member "possession". The rows generated before this fix were
+  deleted on the server so the worker writes them again.
 
 ## [3.5.0] - 2026-10-01
 

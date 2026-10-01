@@ -771,8 +771,10 @@ Asked for by a teacher using the bot. One `word_detail` row per word:
   interjection, number). The list lives in code, not a pg enum, so adding one
   needs no migration. Common model names map onto it (article → determiner,
   numeral → number, auxiliary → verb).
-- **Word family**: up to 5 other common words with their parts of speech, not
-  inflections.
+- **Word family**: up to 5 other common words built from the same root with a
+  prefix or suffix, with their parts of speech; not inflections, and not words
+  related only in meaning (the first prompt gave "have" the family member
+  "possession").
 - **Base word** for a derived word (government → govern), else null. It is
   removed from the family so the card does not show it twice.
 - **Synonyms**: up to 3, each with a note under 10 words on how it differs.
