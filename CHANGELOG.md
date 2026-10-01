@@ -9,6 +9,8 @@ file says what changed and what an operator has to do about it.
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-01
+
 ### Added
 
 - **Grammar details on the new-word card**: parts of speech beside the word,
@@ -32,7 +34,6 @@ file says what changed and what an operator has to do about it.
   the new `writing_session.scores` column.
 - A writing-coach answer wrapped in a one-item array is unwrapped instead of
   failing; gemma-4 did this twice in a row on the new rubric prompt.
-
 - **Info log lines have their own monitor topic.** They went to the technical
   topic with the warnings and errors, about 35 an hour from the worker alone.
   `MONITOR_THREAD_INFO` names the new topic; unset, info is not mirrored.
@@ -42,6 +43,19 @@ file says what changed and what an operator has to do about it.
   and no answer, four of five the same batch at the start of each run. The
   writing coach no longer caps its calls at 512 and 2,048 tokens, which the
   reasoning alone could use up.
+
+### Upgrade notes
+
+- Migration `0005_word_detail` adds the `word_detail` table and the nullable
+  `writing_session.scores` column; `scripts/deploy.sh` applies it before the
+  restart.
+- The grammar details fill themselves: `content.fill` works through every
+  word after the collocations, 8 words a request, so all 2,809 take some
+  hours. Until a word is reached its card has no grammar lines.
+- Learners see the ❓ Help button after their next `/start`, which the release
+  announcement asks them to tap.
+- Optional: `MONITOR_THREAD_INFO` sends info log lines to their own monitor
+  topic; unset, they are not mirrored at all.
 
 ## [3.4.0] - 2026-09-26
 
